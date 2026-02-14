@@ -6,7 +6,7 @@ import tempfile
 import zipfile
 from typing import Callable
 
-from aqua_sniper import __app_name__, __version__
+from bp_tools import __app_name__, __version__
 
 
 def task(func: Callable) -> Callable:

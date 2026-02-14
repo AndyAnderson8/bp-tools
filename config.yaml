@@ -1,0 +1,21 @@
+api_tokens:
+  - username: "YourUsername"
+    token: "your_api_token_here"
+
+  - username: "AltAccount"
+    token: "your_alt_api_token_here"
+
+tools:
+  - name: item_sniper
+    enabled: true
+    config:
+      users:
+        - username: "YourUsername"
+          # max-credits: 10000
+          # max-bits: 50000
+          rares-only: false
+        - username: "AltAccount"
+          # max-credits: 10000
+          # max-bits: 50000
+          rares-only: true
+      credit-to-bits-ratio: 50

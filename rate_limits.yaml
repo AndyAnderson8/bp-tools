@@ -1,0 +1,36 @@
+# BrickPlanet API rate limits per tier.
+# Per the docs: tracked per authenticated user (not per IP).
+# See: https://docs.brickplanet.com/#rate-limits
+
+tiers:
+  default:
+    limit: 60
+    window: 60
+  write:
+    limit: 30
+    window: 60
+  trading:
+    limit: 10
+    window: 60
+
+# Map each endpoint to a tier.
+# Format: "METHOD /path/prefix" -> tier name.
+# Unlisted endpoints fall back to "default".
+routes:
+  "POST /items/*/buy": trading
+  "POST /items/*/offers": trading
+  "POST /currency/orders": trading
+  "DELETE /currency/orders": trading
+  "POST /trades": trading
+  "POST /trades/*/accept": trading
+  "POST /trades/*/decline": trading
+  "POST /trades/*/cancel": trading
+  "POST /friends": trading
+  "GET /search": write
+  "GET /users/search": write
+  "POST /items/*/resell": write
+  "DELETE /items/*/resell": write
+  "DELETE /offers": write
+  "DELETE /friends": write
+  "POST /friends/requests/*/accept": write
+  "POST /friends/requests/*/decline": write

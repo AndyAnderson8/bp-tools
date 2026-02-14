@@ -1,0 +1,56 @@
+# ----------------------
+# Python junk
+# ----------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ----------------------
+# Runtime / local data
+# ----------------------
+*.log
+*.pid
+*.sqlite
+*.db
+
+# If these contain secrets, ignore them
+proxies.txt
+secrets.txt
+.env
+.env.*
+
+# ----------------------
+# IDEs / editors
+# ----------------------
+.idea/
+.vscode/
+*.iml
+
+# ----------------------
+# OS garbage
+# ----------------------
+.DS_Store
+Thumbs.db
+
+# ----------------------
+# Git noise
+# ----------------------
+*.swp
+*.swo
