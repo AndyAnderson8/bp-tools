@@ -6,16 +6,49 @@ api_tokens:
     token: "your_alt_api_token_here"
 
 tools:
-  - name: item_sniper
+  - uuid: 2a0b9214-7f29-41f2-b913-067ff45fc778  # item_sniper
     enabled: true
     config:
       users:
-        - username: "YourUsername"
+        - username: "Revolt"
           # max-credits: 10000
           # max-bits: 50000
           rares-only: false
-        - username: "AltAccount"
+        - username: "RevoIt"
           # max-credits: 10000
           # max-bits: 50000
           rares-only: true
       credit-to-bits-ratio: 50
+
+  - uuid: 121ce010-69e4-41c0-84af-0aac360b32df  # trade_currency
+    enabled: true
+    config:
+      username: "Revolt"
+      offer-bits:
+        amount: 200000
+        max-rate: 40.00
+      offer-credits:
+        amount: 15000
+        max-rate: 70.00
+
+  - uuid: 8e61f94d-9ac5-4ca9-b1d9-ef60f0aa6a05  # rare_snagger
+    enabled: true
+    config:
+      username: "Revolt"
+      max-credits: 3
+      rap-percentage: 5
+      overrides:
+        - item-id: 26782  # Lion's Crate
+          max-credits: 20
+        - item-id: 26781  # Dragon-Forged Blade
+          max-credits: 400
+        - item-id: 26790  # Helm of the Rogue Prince
+          max-credits: 200
+
+  - uuid: a3c2e7f1-5b8d-4f9a-b6e2-d9f1a4c8e3b7  # rare_offerer
+    enabled: false
+    config:
+      username: "Revolt"
+      offer-percentage: 5
+      min-offer: 2
+      skip-items: []

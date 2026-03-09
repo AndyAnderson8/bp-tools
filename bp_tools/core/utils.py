@@ -49,7 +49,7 @@ def _gradient_text(text: str, warning: bool = False) -> Text:
 
 def _build_status_display() -> Group:
     """Build the Rich renderable for the status dashboard."""
-    parts = [Text(""), _gradient_text("Current status:")]
+    parts = [Text(""), _gradient_text("Current status(es):")]
     for line in _status_lines.values():
         parts.append(_gradient_text(line))
     return Group(*parts)

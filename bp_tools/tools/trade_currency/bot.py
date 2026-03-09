@@ -3,10 +3,8 @@ from typing import Any
 
 from bp_tools.core.contracts import BotBase
 
+from .constants import TICK, WALLET_REFRESH_INTERVAL
 from .models import CurrencyExchangeConfig, ExchangeSideConfig, SideState, TradeSide
-
-# Minimum increment to beat the current best price
-TICK = 0.01
 
 
 class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
@@ -32,6 +30,10 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
     name = "trade_currency"
     CONFIG_CLASS = CurrencyExchangeConfig
     poll_interval = 60.0  # monitor and adjust
+    init_before = [
+        "2a0b9214-7f29-41f2-b913-067ff45fc778",  # item_sniper
+        "8e61f94d-9ac5-4ca9-b1d9-ef60f0aa6a05",  # rare_snagger
+    ]
 
     def __init__(self, ctx: Any, tool_config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(ctx, tool_config, **kwargs)
@@ -42,7 +44,6 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             TradeSide.ASK: SideState(),
         }
 
-        self._initialised = False
         self._cycle_count: int = 0
 
         # Orderbook data (fetched each cycle)
@@ -54,7 +55,49 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         # Wallet cache
         self._wallet: dict[str, int] = {}
         self._last_wallet_refresh: float = 0.0
-        self._WALLET_REFRESH_INTERVAL = 3600  # 1 hour
+        self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
+
+    def initialize(self) -> None:
+        self._log("Starting up — cancelling all open orders", True)
+        self._cancel_all_open_orders()
+        self._refresh_wallet()
+        self._log(
+            f"Wallet — {self._wallet.get('credits', 0):,} credits, "
+            f"{self._wallet.get('bits', 0):,} bits",
+        )
+
+        # Fetch initial orderbook so first cycle has data
+        try:
+            client = self._next_get_client()
+            book = client.get_orderbook(limit=50)
+            book_data = book.get("data", {})
+            self._bid_levels = book_data.get("bids", [])
+            self._ask_levels = book_data.get("asks", [])
+            self._best_bid = self._bid_levels[0]["rate"] if self._bid_levels else None
+            self._best_ask = self._ask_levels[0]["rate"] if self._ask_levels else None
+        except Exception as exc:
+            self._log(f"Error — fetching orderbook: {exc}")
+            return
+
+        # Place initial orders
+        bid_placed = False
+        for side in (TradeSide.BID, TradeSide.ASK):
+            cfg = self._config_for(side)
+            if cfg is None:
+                continue
+            if bid_placed:
+                time.sleep(1.0)
+            available = self._wallet.get(side.wallet_key, 0)
+            amount = min(cfg.amount, available)
+            if amount > 0:
+                rate = self._compute_rate(side, cfg)
+                state = self._sides[side]
+                state.order_id = self._place_order(side, rate, amount)
+                state.rate = rate if state.order_id else None
+                if side is TradeSide.BID and state.order_id is not None:
+                    bid_placed = True
+            else:
+                self._log(f"Not enough {side.label} to place order.")
 
     # ------------------------------------------------------------------
     # Side-aware accessors
@@ -233,6 +276,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             amount = min(cfg.amount, available)
             state.order_id = self._place_order(side, rate, amount)
             state.rate = rate if state.order_id else None
+            state.amount = amount if state.order_id else None
 
     def _monitor_side(self, side: TradeSide) -> bool:
         """
@@ -311,65 +355,8 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             self._log(f"Error — fetching orderbook: {exc}")
 
     def execute(self) -> None:
-        if not self._initialised:
-            self._startup()
-            return
         self._monitor_and_repost()
 
-    def _startup(self) -> None:
-        """First-run: cancel existing orders, place fresh limits."""
-        self._log("Starting up — cancelling all open orders", True)
-        self._cancel_all_open_orders()
-
-        self._log(
-            f"Starting up — {self._write_username}",
-            True,
-        )
-        self._refresh_wallet()
-        self._log(
-            f"Wallet — {self._wallet.get('credits', 0):,} credits, "
-            f"{self._wallet.get('bits', 0):,} bits",
-        )
-
-        self._initialised = True
-
-        # Fetch fresh orderbook (needed for rate computation)
-        try:
-            client = self._next_get_client()
-            book = client.get_orderbook(limit=50)
-            book_data = book.get("data", {})
-            self._bid_levels = book_data.get("bids", [])
-            self._ask_levels = book_data.get("asks", [])
-            self._best_bid = self._bid_levels[0]["rate"] if self._bid_levels else None
-            self._best_ask = self._ask_levels[0]["rate"] if self._ask_levels else None
-        except Exception as exc:
-            self._log(f"Error — fetching orderbook: {exc}")
-
-        # Place orders for each configured side
-        bid_placed = False
-        for side in (TradeSide.BID, TradeSide.ASK):
-            cfg = self._config_for(side)
-            if cfg is None:
-                continue
-
-            # Brief pause between placing both sides
-            if bid_placed:
-                time.sleep(1.0)
-
-            available = self._wallet.get(side.wallet_key, 0)
-            amount = min(cfg.amount, available)
-            if amount > 0:
-                rate = self._compute_rate(side, cfg)
-                state = self._sides[side]
-                state.order_id = self._place_order(side, rate, amount)
-                state.rate = rate if state.order_id else None
-                if side is TradeSide.BID and state.order_id is not None:
-                    bid_placed = True
-            else:
-                self._log(f"Not enough {side.label} to place order.")
-
-        # Show status with actual positions
-        self.update()
 
     def _monitor_and_repost(self) -> None:
         bid_acted = self._monitor_side(TradeSide.BID)
@@ -386,5 +373,5 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         if bid_state.order_id is None and ask_state.order_id is None:
             bid_done = self._config_for(TradeSide.BID) is None or bid_state.rate is None
             ask_done = self._config_for(TradeSide.ASK) is None or ask_state.rate is None
-            if bid_done and ask_done and self._initialised:
+            if bid_done and ask_done:
                 self._log("All orders filled or inactive. Holding.", True)

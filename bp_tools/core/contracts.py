@@ -8,15 +8,20 @@ class BotConfigBase(ABC):
     """
 
     @classmethod
-    @abstractmethod
     def from_dict(cls, raw: dict[str, Any]) -> "BotConfigBase":
         """
         Parse and validate tool config.
 
+        Uses :func:`parse_config` to auto-map kebab-case YAML keys to
+        snake_case dataclass fields.  Override in subclasses that need
+        custom parsing or cross-field validation.
+
         :param raw: Raw config dict from config.yaml for this tool.
         :returns: Parsed config instance.
         """
-        raise NotImplementedError
+        from bp_tools.core.config_utils import parse_config
+
+        return parse_config(cls, raw)
 
 
 C = TypeVar("C", bound=BotConfigBase)
@@ -39,6 +44,7 @@ class BotBase(ABC, Generic[C]):
     name: str
     CONFIG_CLASS: ClassVar[type[C]]
     poll_interval: float | None = 1.0  # None = run once at startup
+    init_before: ClassVar[list[str]] = []  # UUIDs this bot must init BEFORE
 
     def __init__(
         self,
@@ -209,6 +215,13 @@ class BotBase(ABC, Generic[C]):
     # ------------------------------------------------------------------
     # Bot contract
     # ------------------------------------------------------------------
+
+    def initialize(self) -> None:
+        """
+        Called once after all bots are constructed, in dependency order.
+        Override for startup work (cache init, wallet fetch, etc.).
+        """
+        pass
 
     @abstractmethod
     def update(self) -> None:

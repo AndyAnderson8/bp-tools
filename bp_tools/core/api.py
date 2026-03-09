@@ -6,21 +6,10 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
-import yaml
 from requests import Response, Session
 
-from bp_tools.core.constants import BASE_URL
+from bp_tools.core.constants import BASE_URL, RATE_LIMITS
 from bp_tools.core.utils import color_print as print
-
-# Fallback defaults if no rate_limits.yaml is found
-_DEFAULT_RATE_LIMITS: dict[str, Any] = {
-    "tiers": {
-        "default": {"limit": 60, "window": 60},
-        "write": {"limit": 30, "window": 60},
-        "trading": {"limit": 10, "window": 60},
-    },
-    "routes": {},
-}
 
 
 class _RateLimiter:
@@ -45,22 +34,6 @@ class _RateLimiter:
                 )
                 time.sleep(sleep_for)
         self._timestamps.append(time.monotonic())
-
-
-def load_rate_limits(path: Optional[Path] = None) -> dict[str, Any]:
-    """
-    Load rate limits from a YAML file.
-
-    :param path: Path to ``rate_limits.yaml``. If ``None``, searches CWD.
-    :returns: Parsed rate-limits dict.
-    """
-    if path is None:
-        path = Path.cwd() / "rate_limits.yaml"
-    if path.exists():
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return data
-    return _DEFAULT_RATE_LIMITS
 
 
 class ApiClient:
@@ -126,7 +99,7 @@ class ApiClient:
     def _handle_429(self, response: Response) -> bool:
         """Sleep on server-side 429 as a fallback. Returns True if retryable."""
         if response.status_code == 429:
-            retry_after = int(response.headers.get("Retry-After", "5"))
+            retry_after = int(response.headers.get("Retry-After", "5")) + 1
             print(f"429 Too Many Requests — sleeping {retry_after}s")
             time.sleep(retry_after)
             return True

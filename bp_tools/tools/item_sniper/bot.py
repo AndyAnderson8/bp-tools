@@ -4,6 +4,7 @@ from typing import Any
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.utils import color_print as print
 
+from .constants import WALLET_REFRESH_INTERVAL
 from .models import ItemSniperConfig, ShopItem, UserSniperConfig
 
 
@@ -38,8 +39,9 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         # Per-user wallet cache
         self._wallets: dict[str, dict[str, int]] = {}
         self._wallet_refresh_times: dict[str, float] = {}
-        self._WALLET_REFRESH_INTERVAL = 3600  # 1 hour
+        self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
 
+    def initialize(self) -> None:
         # Fetch initial wallets for all configured users
         for user_cfg in self.config.users:
             self._refresh_user_wallet(user_cfg.username)

@@ -32,6 +32,7 @@ class SnaggerConfig(BotConfigBase):
 
         username: "Revolt"
         max-credits: 500          # default max price for any rare resale
+        rap-percentage: 50        # buy if price <= 50% of avg sale price
         overrides:                # per-item overrides (optional)
           - item-id: 42
             max-credits: 1000     # pay up to 1000 for this item
@@ -50,18 +51,9 @@ class SnaggerConfig(BotConfigBase):
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "SnaggerConfig":
-        username = raw.get("username")
-        if not isinstance(username, str):
-            raise TypeError("snagger.config.username must be a string.")
+        from bp_tools.core.config_utils import parse_config
 
-        max_credits = raw.get("max-credits", 500)
-        if not isinstance(max_credits, int):
-            raise TypeError("snagger.config.max-credits must be an int.")
-
-        rap_percentage = raw.get("rap-percentage", 0)
-        if not isinstance(rap_percentage, int):
-            raise TypeError("snagger.config.rap-percentage must be an int.")
-
+        # Parse overrides list[{item-id, max-credits}] → dict[int, int]
         overrides: dict[int, int] = {}
         for entry in raw.get("overrides") or []:
             if not isinstance(entry, dict):
@@ -74,9 +66,7 @@ class SnaggerConfig(BotConfigBase):
                 raise TypeError("overrides require int item-id and int max-credits.")
             overrides[item_id] = max_credits_override
 
-        return cls(
-            username=username,
-            max_credits=max_credits,
-            rap_percentage=rap_percentage,
-            overrides=overrides,
-        )
+        # Strip overrides from raw so parse_config doesn't choke on it
+        clean = {k: v for k, v in raw.items() if k != "overrides"}
+        config = parse_config(cls, {**clean, "overrides": overrides})
+        return config

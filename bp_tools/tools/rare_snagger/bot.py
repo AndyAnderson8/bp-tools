@@ -3,6 +3,8 @@ from typing import Any
 
 from bp_tools.core.contracts import BotBase
 
+from .constants import WALLET_REFRESH_INTERVAL
+
 from .db import count_items, init_rare_cache, load_rare_ids, load_rare_names, load_rare_raps
 from .models import PendingBuy, SnaggerConfig
 
@@ -33,9 +35,10 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         # Wallet cache
         self._wallet: dict[str, int] = {}
         self._last_wallet_refresh: float = 0.0
-        self._WALLET_REFRESH_INTERVAL = 3600  # 1 hour
+        self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
 
-        config_dir = getattr(ctx, "config_dir", None)
+    def initialize(self) -> None:
+        config_dir = getattr(self._ctx, "config_dir", None)
 
         # Auto-populate cache if empty
         if count_items(config_dir) == 0:

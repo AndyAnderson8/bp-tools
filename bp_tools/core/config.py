@@ -13,7 +13,7 @@ class UserToken:
 
 @dataclass(frozen=True, slots=True)
 class ToolConfig:
-    name: str
+    uuid: str
     enabled: bool
     config: dict[str, Any]
 
@@ -21,7 +21,7 @@ class ToolConfig:
 @dataclass(frozen=True, slots=True)
 class AppConfig:
     users: list[UserToken]
-    tools: dict[str, ToolConfig]
+    tools: dict[str, ToolConfig]  # keyed by UUID
 
 
 def load_config(path: Path) -> AppConfig:
@@ -55,17 +55,17 @@ def load_config(path: Path) -> AppConfig:
         if not isinstance(t, dict):
             raise TypeError("each tools entry must be a mapping")
 
-        name = t.get("name")
-        if not isinstance(name, str):
-            raise TypeError("tool name must be a string")
+        tool_uuid = t.get("uuid")
+        if not isinstance(tool_uuid, str):
+            raise TypeError("tool uuid must be a string")
 
         enabled = bool(t.get("enabled", True))
         config = t.get("config", {})
         if not isinstance(config, dict):
-            raise TypeError(f"tools[{name}].config must be a mapping")
+            raise TypeError(f"tools[{tool_uuid}].config must be a mapping")
 
-        tools[name] = ToolConfig(
-            name=name,
+        tools[tool_uuid] = ToolConfig(
+            uuid=tool_uuid,
             enabled=enabled,
             config=config,
         )

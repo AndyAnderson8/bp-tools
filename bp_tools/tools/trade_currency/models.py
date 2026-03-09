@@ -98,43 +98,25 @@ class CurrencyExchangeConfig(BotConfigBase):
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "CurrencyExchangeConfig":
-        username = raw.get("username")
-        if not isinstance(username, str):
-            raise TypeError("currency_exchange.config.username must be a string.")
+        from bp_tools.core.config_utils import parse_config
 
-        offer_bits = None
-        ob_raw = raw.get("offer-bits")
-        if isinstance(ob_raw, dict):
-            offer_bits = ExchangeSideConfig(
-                amount=int(ob_raw["amount"]),
-                max_rate=float(ob_raw["max-rate"]),
-            )
+        config = parse_config(cls, raw)
 
-        offer_credits = None
-        oc_raw = raw.get("offer-credits")
-        if isinstance(oc_raw, dict):
-            offer_credits = ExchangeSideConfig(
-                amount=int(oc_raw["amount"]),
-                max_rate=float(oc_raw["max-rate"]),
-            )
-
-        if offer_bits is None and offer_credits is None:
+        if config.offer_bits is None and config.offer_credits is None:
             raise ValueError(
                 "currency_exchange: must configure at least one of 'offer-bits' or 'offer-credits'."
             )
 
         if (
-            offer_bits is not None
-            and offer_credits is not None
-            and offer_bits.max_rate >= offer_credits.max_rate
+            config.offer_bits is not None
+            and config.offer_credits is not None
+            and config.offer_bits.max_rate >= config.offer_credits.max_rate
         ):
             raise ValueError(
-                f"currency_exchange: offer-bits max-rate ({offer_bits.max_rate}) must be "
-                f"less than offer-credits max-rate ({offer_credits.max_rate}). "
+                f"currency_exchange: offer-bits max-rate ({config.offer_bits.max_rate}) must be "
+                f"less than offer-credits max-rate ({config.offer_credits.max_rate}). "
                 f"Otherwise you'd pay more bits/credit to buy credits than you "
                 f"receive when selling them."
             )
 
-        return cls(
-            username=username, offer_bits=offer_bits, offer_credits=offer_credits
-        )
+        return config

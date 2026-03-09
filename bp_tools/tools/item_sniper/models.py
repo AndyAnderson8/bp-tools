@@ -46,38 +46,12 @@ class ItemSniperConfig(BotConfigBase):
         # Shouldn't happen — but return no-cap defaults
         return UserSniperConfig(username=username)
 
-    @staticmethod
-    def _parse_user_entry(entry: Any) -> UserSniperConfig:
-        """Parse a single user config entry."""
-        if isinstance(entry, str):
-            return UserSniperConfig(username=entry)
-        if not isinstance(entry, dict):
-            raise TypeError("each users entry must be a mapping or string.")
-
-        uname = entry.get("username")
-        if not isinstance(uname, str):
-            raise TypeError("users[].username must be a string.")
-
-        max_credits = entry.get("max-credits")
-        if max_credits is not None and not isinstance(max_credits, int):
-            raise TypeError(f"users[{uname}].max-credits must be an int.")
-
-        max_bits = entry.get("max-bits")
-        if max_bits is not None and not isinstance(max_bits, int):
-            raise TypeError(f"users[{uname}].max-bits must be an int.")
-
-        return UserSniperConfig(
-            username=uname,
-            max_credits=max_credits,
-            max_bits=max_bits,
-            rares_only=bool(entry.get("rares-only", True)),
-        )
-
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "ItemSniperConfig":
-        users_raw = raw.get("users")
+        from bp_tools.core.config_utils import parse_config
 
         # Backwards compat: plain "usernames" list (no per-user caps)
+        users_raw = raw.get("users")
         if users_raw is None:
             usernames = raw.get("usernames", [])
             if not isinstance(usernames, list):
@@ -87,20 +61,28 @@ class ItemSniperConfig(BotConfigBase):
         if not isinstance(users_raw, list):
             raise TypeError("item_sniper.config.users must be a list.")
 
-        users = [cls._parse_user_entry(e) for e in users_raw]
+        # Support both string shorthand and full dict entries
+        users: list[UserSniperConfig] = []
+        for entry in users_raw:
+            if isinstance(entry, str):
+                users.append(UserSniperConfig(username=entry))
+            elif isinstance(entry, dict):
+                users.append(parse_config(UserSniperConfig, entry))
+            else:
+                raise TypeError("each users entry must be a mapping or string.")
 
         if not users:
             raise ValueError("item_sniper: at least one user required.")
 
-        ratio = raw.get("credit-to-bits-ratio", 50)
-        if not isinstance(ratio, int) or ratio <= 0:
-            raise TypeError(
-                "item_sniper.config.credit-to-bits-ratio " "must be a positive int."
-            )
+        # Parse remaining fields (sans users)
+        clean = {k: v for k, v in raw.items() if k not in ("users", "usernames")}
+        clean["users"] = []  # placeholder to satisfy required field
+        base = parse_config(cls, clean)
 
+        # Replace with real users list
         return cls(
             users=users,
-            credit_to_bits_ratio=ratio,
+            credit_to_bits_ratio=base.credit_to_bits_ratio,
         )
 
 

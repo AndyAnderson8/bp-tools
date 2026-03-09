@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Type
 
-from bp_tools.core.api import ApiClient, load_rate_limits
+from bp_tools.core.api import ApiClient
 from bp_tools.core.config import AppConfig, ToolConfig, load_config
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.utils import color_print as print, start_live, stop_live
@@ -53,10 +53,11 @@ def discover_tools(package_name: str = "bp_tools.tools") -> dict[str, LoadedTool
 
     Tool package contract (in each tool package __init__.py):
       - TOOL_NAME: str
+      - TOOL_UUID: str
       - BOT_CLASS: type[BotBase]
 
     :param package_name: Root package containing tools.
-    :returns: Mapping tool_name -> LoadedTool.
+    :returns: Mapping tool_uuid -> LoadedTool.
     """
     root = importlib.import_module(package_name)
     found: dict[str, LoadedTool] = {}
@@ -77,10 +78,13 @@ def discover_tools(package_name: str = "bp_tools.tools") -> dict[str, LoadedTool
         tool_uuid = getattr(module, "TOOL_UUID", "")
         tool_version = getattr(module, "TOOL_VERSION", "0.0.0")
 
-        if tool_name in found:
-            raise ValueError(f"Duplicate TOOL_NAME: {tool_name!r}")
+        if not tool_uuid:
+            raise ValueError(f"{mod_info.name}: TOOL_UUID is required.")
 
-        found[tool_name] = LoadedTool(
+        if tool_uuid in found:
+            raise ValueError(f"Duplicate TOOL_UUID: {tool_uuid!r}")
+
+        found[tool_uuid] = LoadedTool(
             tool_name=tool_name,
             tool_uuid=tool_uuid if isinstance(tool_uuid, str) else "",
             tool_version=tool_version if isinstance(tool_version, str) else "0.0.0",
@@ -239,9 +243,9 @@ def _instantiate_bots(
     """Create bot instances, skipping on permission/runtime errors."""
     bots: list[BotBase] = []
     for t in enabled:
-        tool = registry.get(t.name)
+        tool = registry.get(t.uuid)
         if tool is None:
-            raise ValueError(f"Tool enabled in config but not found: {t.name}")
+            raise ValueError(f"Tool enabled in config but not found: {t.uuid}")
         try:
             bot = tool.bot_cls(
                 ctx=ctx,
@@ -251,10 +255,63 @@ def _instantiate_bots(
             )  # type: ignore[call-arg]
             bots.append(bot)
         except PermissionError as exc:
-            print(f"  Skipping {t.name}: {exc}")
+            print(f"  Skipping {tool.tool_name}: {exc}")
         except RuntimeError as exc:
-            print(f"  Skipping {t.name}: {exc}")
+            print(f"  Skipping {tool.tool_name}: {exc}")
     return bots
+
+
+def _initialize_bots(bots: list[BotBase]) -> None:
+    """
+    Call ``initialize()`` on each bot in dependency order.
+
+    Each bot can declare ``init_before: list[str]`` — UUIDs of bots that
+    must NOT initialize until this bot has initialized first.
+
+    Algorithm:
+      1. Build a master "blocked" set from all bots' ``init_before`` lists.
+      2. Iterate bots: if a bot's UUID is in the blocked set, skip it.
+      3. Initialize non-blocked bots, then remove UUIDs they block.
+      4. Repeat until all bots are initialized.
+    """
+    initialized: set[str] = set()
+    remaining = list(bots)
+
+    while remaining:
+        # Build blocked set from bots that haven't initialized yet
+        blocked: set[str] = set()
+        for b in remaining:
+            for uuid in b.init_before:
+                blocked.add(uuid)
+
+        progressed = False
+        next_remaining: list[BotBase] = []
+
+        for b in remaining:
+            if b.tool_uuid in blocked:
+                # This bot is blocked — someone else must init first
+                next_remaining.append(b)
+                continue
+
+            try:
+                b.initialize()
+            except Exception as exc:
+                print(f"  [{b.name}] Init error: {exc}")
+            initialized.add(b.tool_uuid)
+            progressed = True
+
+        remaining = next_remaining
+
+        if not progressed and remaining:
+            # Circular dependency — just init the rest in order
+            names = [b.name for b in remaining]
+            print(f"  [!] Circular init dependency, forcing: {names}")
+            for b in remaining:
+                try:
+                    b.initialize()
+                except Exception as exc:
+                    print(f"  [{b.name}] Init error: {exc}")
+            break
 
 
 def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
@@ -323,7 +380,17 @@ def start(
 
     enabled = _enabled_tools(cfg)
     if only_tools:
-        enabled = [t for t in enabled if t.name in only_tools]
+        # Support both tool names and UUIDs in --tools filter
+        uuid_by_name = {lt.tool_name: lt.tool_uuid for lt in registry.values()}
+        filter_uuids = set()
+        for name_or_uuid in only_tools:
+            if name_or_uuid in registry:
+                filter_uuids.add(name_or_uuid)  # already a UUID
+            elif name_or_uuid in uuid_by_name:
+                filter_uuids.add(uuid_by_name[name_or_uuid])  # name → UUID
+            else:
+                print(f"  Unknown tool: {name_or_uuid}", warning=True)
+        enabled = [t for t in enabled if t.uuid in filter_uuids]
     if not enabled:
         print("No enabled tools in config.", warning=True)
         return 0
@@ -339,7 +406,9 @@ def start(
         raise ValueError(f"Missing API tokens for usernames: {missing}")
 
     print(f"{len(all_usernames)} tokens found, initializing user clients...")
-    rate_limits = load_rate_limits(config_path.parent / "rate_limits.yaml")
+    from bp_tools.core.constants import RATE_LIMITS
+
+    rate_limits = RATE_LIMITS
     clients = create_api_clients(
         cfg, all_usernames, rate_limits=rate_limits, dry_run=dry_run
     )
@@ -365,16 +434,18 @@ def start(
     print()
     print(f"Running {len(enabled)} tool(s):")
     for t in enabled:
-        tool = registry.get(t.name)
+        tool = registry.get(t.uuid)
         if tool and tool.bot_cls.poll_interval is not None:
             label = f"every {tool.bot_cls.poll_interval}s"
         else:
             label = "once"
-        print(f"  - {t.name} ({label})")
+        name = tool.tool_name if tool else t.uuid
+        print(f"  - {name} ({label})")
 
     if dry_run:
         print("\n*** DRY RUN MODE — no POST/DELETE requests will be sent ***")
     print()
 
     bots = _instantiate_bots(enabled, registry, ctx)
+    _initialize_bots(bots)
     return _run_loop(bots, sleep_seconds)
