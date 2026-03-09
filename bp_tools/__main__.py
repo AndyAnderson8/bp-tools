@@ -39,6 +39,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Run normally but print POST/DELETE requests instead of sending them.",
     )
+    parser.add_argument(
+        "--tools",
+        nargs="+",
+        metavar="NAME",
+        help="Only run these tools (by name). Omit to run all enabled tools.",
+    )
     return parser.parse_args(argv)
 
 
@@ -73,6 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         config_path=args.config,
         sleep_seconds=args.sleep,
         dry_run=args.dry_run,
+        only_tools=args.tools,
     )
 
 

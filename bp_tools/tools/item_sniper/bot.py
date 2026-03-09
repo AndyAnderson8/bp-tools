@@ -88,10 +88,10 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         """Decide whether to poll rare-only or all items."""
         all_rares = all(u.rares_only for u in self.config.users)
         if all_rares:
-            return True, "rare"
+            return True, "rares"
         if self._loop_iterations % 2 == 0:
-            return True, "rare"
-        return None, "all"
+            return True, "rares"
+        return None, "items"
 
     def _detect_buyable(self, item: ShopItem) -> None:
         """Check a single item for buy signals (new or restocked)."""
@@ -102,7 +102,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
                 if item.remaining_stock > 0 and item.on_sale:
                     self._items_to_buy.append(item)
             elif prev_stock == 0 and item.remaining_stock > 0 and item.on_sale:
-                self._log(f"Restock detected: {item}")
+                self._log(f"Restock detected — {item}")
                 self._items_to_buy.append(item)
         else:
             if prev_stock is None and item.on_sale:
@@ -118,7 +118,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         newest = f" | Newest: {self._newest_rare}" if self._newest_rare else ""
         self._log(
-            f"Polling {label} items... (cycle {self._loop_iterations}){newest}",
+            f"Polling new {label}... (cycle {self._loop_iterations}){newest}",
             True,
         )
 
@@ -129,13 +129,13 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
                 rare=rare_flag,
             )
         except Exception as exc:
-            self._log(f"Error polling items: {exc}")
+            self._log(f"Error — polling items: {exc}")
             self._loop_iterations += 1
             return
 
         data = payload.get("data")
         if not isinstance(data, list):
-            self._log("Unexpected items payload: missing list under key 'data'.")
+            self._log("Error — unexpected items payload, missing list under key 'data'.")
             self._loop_iterations += 1
             return
 
@@ -144,7 +144,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         for item in items:
             if item.rare:
-                self._newest_rare = item.name
+                self._newest_rare = f"{item.name} (ID: {item.item_id})"
                 break
 
         for item in items:
@@ -213,11 +213,16 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
     def _log_wallets(self) -> None:
         for username, wallet in self._wallets.items():
-            self._log(
-                f"[{username}] Wallet: "
-                f"{wallet.get('credits', 0):,} credits, "
-                f"{wallet.get('bits', 0):,} bits"
-            )
+            caps = self.config.caps_for(username)
+            credits = wallet.get("credits", 0)
+            bits = wallet.get("bits", 0)
+            cr_str = f"{credits:,} credits"
+            if caps.max_credits is not None:
+                cr_str += f" (limit: {caps.max_credits:,})"
+            bt_str = f"{bits:,} bits"
+            if caps.max_bits is not None:
+                bt_str += f" (limit: {caps.max_bits:,})"
+            self._log(f"[{username}] Wallet — {cr_str}, {bt_str}")
 
     def _buy_for_user(self, item: ShopItem, user_cfg: UserSniperConfig) -> None:
         """Attempt to buy an item for a single user."""
@@ -227,7 +232,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         username = user_cfg.username
         client = self._ctx.clients.get(username)
         if client is None:
-            print(f"  [{username}] No API client, skipping.")
+            print(f"  [{username}] No API client — skipping.")
             return
 
         wallet = self._get_cached_user_wallet(username)
@@ -236,7 +241,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             wallet = self._refresh_user_wallet(username)
             pick = self._pick_currency(item, user_cfg, wallet)
             if pick is None:
-                print(f"  [{username}] Can't afford / exceeds caps, skipping.")
+                print(f"  [{username}] Can't afford / exceeds caps — skipping.")
                 return
 
         currency, price = pick
@@ -255,10 +260,10 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             )
             msg = result.get("data", {}).get("message", "Success")
             backpack_id = result.get("data", {}).get("backpack_id")
-            print(f"  [{username}] Purchased! " f"{msg} (backpack_id: {backpack_id})")
+            print(f"  [{username}] Purchased! {msg} (backpack ID: {backpack_id})")
             self._refresh_user_wallet(username)
         except Exception as exc:
-            print(f"  [{username}] Buy failed: {exc}")
+            print(f"  [{username}] Buy failed — {exc}")
 
     def execute(self) -> None:
         if not self._items_to_buy:
@@ -270,7 +275,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         sys.stdout.flush()  # terminal bell
 
         for item in self._items_to_buy:
-            self._log(f"New/restocked item: {item} " f"(stock: {item.remaining_stock})")
+            self._log(f"New/restocked item — {item} (stock: {item.remaining_stock})")
             for user_cfg in self.config.users:
                 self._buy_for_user(item, user_cfg)
 

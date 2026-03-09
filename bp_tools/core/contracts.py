@@ -38,7 +38,7 @@ class BotBase(ABC, Generic[C]):
 
     name: str
     CONFIG_CLASS: ClassVar[type[C]]
-    poll_interval: float = 1.0  # seconds between run_once() calls
+    poll_interval: float | None = 1.0  # None = run once at startup
 
     def __init__(
         self,
@@ -66,10 +66,24 @@ class BotBase(ABC, Generic[C]):
         self.authorize()
 
     def _log(self, msg: str, overwrite: bool = False) -> None:
-        """Print with bot name prefix auto-prepended."""
+        """Print a scrolling log message with bot name prefix.
+
+        If *overwrite* is True the message is routed to set_status instead
+        (backward-compat shim – prefer ``_set_status`` for new code).
+        """
+        prefixed = f"[{self.name}] {msg}"
+        if overwrite:
+            self._set_status(prefixed)
+            return
         from bp_tools.core.utils import color_print
 
-        color_print(f"[{self.name}] {msg}", overwrite=overwrite, source=self.name)
+        color_print(prefixed)
+
+    def _set_status(self, text: str) -> None:
+        """Update this bot's live status line in the dashboard."""
+        from bp_tools.core.utils import set_status
+
+        set_status(self.name, text)
 
     @staticmethod
     def _parse_semver(version: str) -> tuple[int, int, int]:

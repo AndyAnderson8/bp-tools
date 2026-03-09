@@ -282,6 +282,28 @@ class ApiClient:
         """
         return self.get(f"/items/{item_id}/resellers")
 
+    def make_offer(
+        self,
+        item_id: int,
+        offer_amount: int,
+        message: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        ``POST /items/{id}/offers`` — send a credits offer to the owner.
+
+        Offers auto-expire after 7 days if not responded to.
+        """
+        body: dict[str, Any] = {"offer_amount": offer_amount}
+        if message is not None:
+            body["message"] = message
+        return self.post(f"/items/{item_id}/offers", json_body=body)
+
+    def withdraw_offer(self, offer_id: int) -> dict[str, Any]:
+        """
+        ``DELETE /offers/{id}`` — withdraw a pending offer you made.
+        """
+        return self.delete(f"/offers/{offer_id}")
+
     # ------------------------------------------------------------------
     # Currency Exchange
     # ------------------------------------------------------------------

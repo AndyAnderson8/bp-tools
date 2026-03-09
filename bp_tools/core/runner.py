@@ -8,7 +8,7 @@ from typing import Any, Type
 from bp_tools.core.api import ApiClient, load_rate_limits
 from bp_tools.core.config import AppConfig, ToolConfig, load_config
 from bp_tools.core.contracts import BotBase
-from bp_tools.core.utils import color_print as print
+from bp_tools.core.utils import color_print as print, start_live, stop_live
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,12 +259,24 @@ def _instantiate_bots(
 
 def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
     """Main polling loop. Returns exit code."""
+    start_live()
     last_run: dict[str, float] = {b.name: 0.0 for b in bots}
+    done: set[str] = set()  # run-once bots that have already executed
 
     try:
         while True:
             now = time.monotonic()
             for b in bots:
+                if b.name in done:
+                    continue
+                if b.poll_interval is None:
+                    # Run-once bot — execute once, then never again
+                    try:
+                        b.run_once()
+                    except Exception as exc:
+                        print(f"  [{b.name}] Error: {exc}")
+                    done.add(b.name)
+                    continue
                 elapsed = now - last_run[b.name]
                 if elapsed >= b.poll_interval:
                     try:
@@ -274,8 +286,11 @@ def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
                     last_run[b.name] = time.monotonic()
             time.sleep(sleep_seconds)
     except KeyboardInterrupt:
+        stop_live()
         print("\nStopped (Ctrl+C).")
         return 0
+    finally:
+        stop_live()
     return 0  # unreachable but keeps mypy happy
 
 
@@ -284,6 +299,7 @@ def start(
     tools_package: str = "bp_tools.tools",
     sleep_seconds: float = 1.0,
     dry_run: bool = False,
+    only_tools: list[str] | None = None,
 ) -> int:
     """
     Start runner: load config, create API clients, instantiate bots, run loop.
@@ -292,6 +308,7 @@ def start(
     :param tools_package: Tools root package.
     :param sleep_seconds: Delay between cycles.
     :param dry_run: If True, POST/DELETE requests are printed not sent.
+    :param only_tools: If set, only run these tool names.
     :returns: Exit code.
     """
     if sleep_seconds <= 0:
@@ -305,6 +322,8 @@ def start(
     registry = discover_tools(tools_package)
 
     enabled = _enabled_tools(cfg)
+    if only_tools:
+        enabled = [t for t in enabled if t.name in only_tools]
     if not enabled:
         print("No enabled tools in config.", warning=True)
         return 0
@@ -343,11 +362,15 @@ def start(
         user_roles=user_roles,
     )
 
-    print(f"\nRunning {len(enabled)} bot(s):")
+    print()
+    print(f"Running {len(enabled)} tool(s):")
     for t in enabled:
         tool = registry.get(t.name)
-        interval = tool.bot_cls.poll_interval if tool else "?"
-        print(f"  - {t.name} (every {interval}s)")
+        if tool and tool.bot_cls.poll_interval is not None:
+            label = f"every {tool.bot_cls.poll_interval}s"
+        else:
+            label = "once"
+        print(f"  - {t.name} ({label})")
 
     if dry_run:
         print("\n*** DRY RUN MODE — no POST/DELETE requests will be sent ***")
