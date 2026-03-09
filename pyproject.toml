@@ -9,6 +9,7 @@ description = "A collection of automation tools for BrickPlanet."
 dependencies = [
     "requests~=2.32.5",
     "pyyaml~=6.0.2",
+    "rich~=14.3.3",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,9 @@ exclude = [
 [tool.mypy]
 python_version = "3.14"
 exclude = "^(build|.venv)/"
+
+[tool.isort]
+profile = "black"
 
 [tool.setuptools.packages.find]
 where = ["."]

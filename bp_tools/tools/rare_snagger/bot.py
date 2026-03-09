@@ -1,11 +1,16 @@
 import time
-from typing import Any
 
 from bp_tools.core.contracts import BotBase
+from bp_tools.core.runner import RunnerContext
 
 from .constants import WALLET_REFRESH_INTERVAL
-
-from .db import count_items, init_rare_cache, load_rare_ids, load_rare_names, load_rare_raps
+from .db import (
+    count_items,
+    init_rare_cache,
+    load_rare_ids,
+    load_rare_names,
+    load_rare_raps,
+)
 from .models import PendingBuy, SnaggerConfig
 
 
@@ -22,10 +27,15 @@ class SnaggerBot(BotBase[SnaggerConfig]):
 
     name = "rare_snagger"
     CONFIG_CLASS = SnaggerConfig
-    poll_interval = 3.0
 
-    def __init__(self, ctx: Any, tool_config: dict[str, Any], **kwargs: Any) -> None:
-        super().__init__(ctx, tool_config, **kwargs)
+    def __init__(
+        self,
+        ctx: RunnerContext,
+        config: SnaggerConfig,
+        poll_interval: float = 3.0,
+        **kwargs: str,
+    ) -> None:
+        super().__init__(ctx, config, poll_interval=poll_interval, **kwargs)
 
         self._rare_item_ids: list[int] = []
         self._scan_index: int = 0
@@ -59,6 +69,19 @@ class SnaggerBot(BotBase[SnaggerConfig]):
             f"{self._wallet.get('bits', 0):,} bits"
         )
 
+    def _refresh_items(self) -> None:
+        """Incremental scan for new rare items, then reload from DB."""
+        config_dir = getattr(self._ctx, "config_dir", None)
+        client = self._next_get_client()
+        init_rare_cache(client, config_dir=config_dir, log=self._log)
+        self._rare_item_ids = load_rare_ids(config_dir)
+        self._rare_names = load_rare_names(config_dir)
+        self._rare_raps = load_rare_raps(config_dir)
+        self._log(
+            f"Refreshed — {len(self._rare_item_ids)} rare items.",
+            True,
+        )
+
     def update(self) -> None:
         self._pending_buy = None
 
@@ -73,6 +96,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         if self._scan_index >= len(self._rare_item_ids):
             self._scan_index = 0
             self._cycle_count += 1
+            self._refresh_items()
 
         item_name = self._rare_names.get(item_id, f"#{item_id}")
 
@@ -114,9 +138,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         max_willing = max(max_credits, rap_threshold)
 
         if price <= max_willing:
-            self._log(
-                f"SNAG! {item_name} (ID: {item_id}) listed at {price:,} credits"
-            )
+            self._log(f"SNAG! {item_name} (ID: {item_id}) listed at {price:,} credits")
             # Store item info — we'll fetch reseller_id in execute()
             self._pending_buy = PendingBuy(
                 item_id=item_id,
@@ -139,29 +161,23 @@ class SnaggerBot(BotBase[SnaggerConfig]):
             return self._refresh_wallet()
         return self._wallet
 
-    def execute(self) -> None:
-        if not self._pending_buy:
-            return
+    def _verify_listing(self, buy: "PendingBuy") -> tuple[int, int, str] | None:
+        """Verify listing still exists and price is valid.
 
-        buy = self._pending_buy
-        self._pending_buy = None
-
-        import sys
-
-        sys.stdout.write("\a")
-        sys.stdout.flush()  # terminal bell
-
-        # Resolve reseller_id — update() only checked price via get_item
+        :returns: (reseller_id, actual_price, seller_name) or None.
+        """
         try:
             result = self._next_get_client().get_resellers(buy.item_id)
         except Exception as exc:
             self._log(f"Error — fetching resellers for {buy.item_name}: {exc}")
-            return
+            return None
 
         listings = result.get("data", [])
         if not listings:
-            self._log(f"No resellers found for {buy.item_name} — listing may be gone.")
-            return
+            self._log(
+                f"No resellers found for {buy.item_name}" " — listing may be gone."
+            )
+            return None
 
         cheapest = listings[0]
         reseller_id = cheapest.get("id")
@@ -169,25 +185,34 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         seller_name = cheapest.get("seller", {}).get("username", "?")
 
         if reseller_id is None or actual_price <= 0:
-            return
+            return None
 
-        # Verify price hasn't changed since scan
         if actual_price > buy.price:
             self._log(
                 f"Price changed — {buy.item_name} now {actual_price:,} "
                 f"(was {buy.price:,}). Skipping."
             )
-            return
+            return None
 
-        # Check cached wallet first, refresh if insufficient
+        return (reseller_id, actual_price, seller_name)
+
+    def _attempt_purchase(
+        self,
+        buy: "PendingBuy",
+        reseller_id: int,
+        actual_price: int,
+        seller_name: str,
+    ) -> None:
+        """Check wallet and attempt the purchase."""
         wallet = self._get_cached_wallet()
         credits_balance = wallet.get("credits", 0)
         if credits_balance < actual_price:
-            # Might be stale — force refresh
             wallet = self._refresh_wallet()
             credits_balance = wallet.get("credits", 0)
             if credits_balance < actual_price:
-                self._log(f"Not enough credits — {credits_balance:,} < {actual_price:,}")
+                self._log(
+                    f"Not enough credits" f" — {credits_balance:,} < {actual_price:,}"
+                )
                 return
 
         try:
@@ -204,11 +229,29 @@ class SnaggerBot(BotBase[SnaggerConfig]):
                 else "(DRY RUN)" if not msg else msg
             )
             self._log(
-                f"Snagged {buy.item_name} for {actual_price:,} credits from {seller_name}! {suffix}"
+                f"Snagged {buy.item_name} for {actual_price:,} credits"
+                f" from {seller_name}! {suffix}"
             )
-            # Re-check same item next cycle in case there are more listings
             self._scan_index -= 1
-            # Refresh wallet after purchase
             self._refresh_wallet()
         except Exception as exc:
             self._log(f"Buy failed — {buy.item_name}: {exc}")
+
+    def execute(self) -> None:
+        if not self._pending_buy:
+            return
+
+        buy = self._pending_buy
+        self._pending_buy = None
+
+        import sys
+
+        sys.stdout.write("\a")
+        sys.stdout.flush()  # terminal bell
+
+        listing = self._verify_listing(buy)
+        if listing is None:
+            return
+
+        reseller_id, actual_price, seller_name = listing
+        self._attempt_purchase(buy, reseller_id, actual_price, seller_name)

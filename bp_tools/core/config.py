@@ -15,6 +15,7 @@ class UserToken:
 class ToolConfig:
     uuid: str
     enabled: bool
+    poll_interval: float
     config: dict[str, Any]
 
 
@@ -64,9 +65,12 @@ def load_config(path: Path) -> AppConfig:
         if not isinstance(config, dict):
             raise TypeError(f"tools[{tool_uuid}].config must be a mapping")
 
+        poll_interval = float(t.get("poll-interval", 0))
+
         tools[tool_uuid] = ToolConfig(
             uuid=tool_uuid,
             enabled=enabled,
+            poll_interval=poll_interval,
             config=config,
         )
 

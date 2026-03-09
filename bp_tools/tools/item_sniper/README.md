@@ -16,6 +16,7 @@ Auto-buy new and restocked items from the BrickPlanet shop.
 - name: item_sniper
   enabled: true
   config:
+    poll-interval: 2             # seconds between cycles (default: 2)
     users:
       - username: "Revolt"
         rares-only: false        # false = buy ALL new items, true = rares only
@@ -28,6 +29,7 @@ Auto-buy new and restocked items from the BrickPlanet shop.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `poll-interval` | float | `2` | Seconds between poll cycles |
 | `users[].username` | string | *required* | BrickPlanet username (must have a token in `api_tokens`) |
 | `users[].rares-only` | bool | `true` | Only buy rare/limited items |
 | `users[].max-credits` | int | *none* | Max credits willing to spend per item |

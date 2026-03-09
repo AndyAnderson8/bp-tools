@@ -8,6 +8,7 @@ api_tokens:
 tools:
   - uuid: 2a0b9214-7f29-41f2-b913-067ff45fc778  # item_sniper
     enabled: true
+    poll-interval: 2
     config:
       users:
         - username: "Revolt"
@@ -18,10 +19,11 @@ tools:
           # max-credits: 10000
           # max-bits: 50000
           rares-only: true
-      credit-to-bits-ratio: 50
+      credit-to-bits-ratio: 40
 
   - uuid: 121ce010-69e4-41c0-84af-0aac360b32df  # trade_currency
     enabled: true
+    poll-interval: 60
     config:
       username: "Revolt"
       offer-bits:
@@ -33,6 +35,7 @@ tools:
 
   - uuid: 8e61f94d-9ac5-4ca9-b1d9-ef60f0aa6a05  # rare_snagger
     enabled: true
+    poll-interval: 5
     config:
       username: "Revolt"
       max-credits: 3
@@ -46,9 +49,8 @@ tools:
           max-credits: 200
 
   - uuid: a3c2e7f1-5b8d-4f9a-b6e2-d9f1a4c8e3b7  # rare_offerer
-    enabled: false
+    enabled: true
+    poll-interval: 10
     config:
       username: "Revolt"
-      offer-percentage: 5
-      min-offer: 2
-      skip-items: []
+      base-offer: 2

@@ -1,27 +1,39 @@
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Generic, TypeVar
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
+
+if TYPE_CHECKING:
+    from bp_tools.core.runner import RunnerContext
 
 
-class BotConfigBase(ABC):
+@dataclass(frozen=True, slots=True)
+class BotConfigBase:
     """
     Base config contract for bots.
+
+    All bot configs inherit ``usernames`` and ``poll_interval``.
+    YAML ``username: "X"`` is auto-normalized to ``usernames: ["X"]``.
     """
+
+    usernames: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "BotConfigBase":
         """
         Parse and validate tool config.
 
-        Uses :func:`parse_config` to auto-map kebab-case YAML keys to
-        snake_case dataclass fields.  Override in subclasses that need
-        custom parsing or cross-field validation.
-
-        :param raw: Raw config dict from config.yaml for this tool.
-        :returns: Parsed config instance.
+        Normalizes singular ``username`` to ``usernames`` list.
+        Uses :func:`parse_config` to auto-map kebab-case YAML keys
+        to snake_case dataclass fields.  Override in subclasses
+        that need custom parsing or cross-field validation.
         """
         from bp_tools.core.config_utils import parse_config
 
-        return parse_config(cls, raw)
+        normalized = dict(raw)
+        if "username" in normalized and "usernames" not in normalized:
+            normalized["usernames"] = [normalized.pop("username")]
+
+        return parse_config(cls, normalized)
 
 
 C = TypeVar("C", bound=BotConfigBase)
@@ -43,26 +55,33 @@ class BotBase(ABC, Generic[C]):
 
     name: str
     CONFIG_CLASS: ClassVar[type[C]]
-    poll_interval: float | None = 1.0  # None = run once at startup
     init_before: ClassVar[list[str]] = []  # UUIDs this bot must init BEFORE
+
+    @property
+    def poll_interval(self) -> float:
+        """Poll interval in seconds."""
+        return self._poll_interval
 
     def __init__(
         self,
-        ctx: Any,
-        tool_config: dict[str, Any],
+        ctx: "RunnerContext",
+        config: C,
         tool_uuid: str = "",
         tool_version: str = "0.0.0",
+        poll_interval: float = 1.0,
     ) -> None:
         """
         :param ctx: Runner context.
-        :param tool_config: Raw tool config dict from config.yaml.
+        :param config: Parsed, typed bot config.
         :param tool_uuid: UUID from the tool's __init__.py.
         :param tool_version: Semantic version from the tool's __init__.py.
+        :param poll_interval: Seconds between poll cycles.
         """
         self._ctx = ctx
-        self.config: C = self.CONFIG_CLASS.from_dict(tool_config)  # type: ignore[assignment]
+        self.config: C = config
         self.tool_uuid: str = tool_uuid
         self.tool_version: str = tool_version
+        self._poll_interval: float = poll_interval
         self._get_client_index: int = 0
 
         # Resolve user roles from entitlements
@@ -198,8 +217,10 @@ class BotBase(ABC, Generic[C]):
 
     @property
     def _write_username(self) -> str | None:
-        """Override in subclass to set the username used for write operations."""
-        return getattr(self.config, "username", None)
+        """First username from config, used for write operations."""
+        if self.config.usernames:
+            return self.config.usernames[0]
+        return None
 
     @property
     def _write_client(self) -> Any:

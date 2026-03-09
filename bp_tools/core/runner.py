@@ -8,7 +8,9 @@ from typing import Any, Type
 from bp_tools.core.api import ApiClient
 from bp_tools.core.config import AppConfig, ToolConfig, load_config
 from bp_tools.core.contracts import BotBase
-from bp_tools.core.utils import color_print as print, start_live, stop_live
+from bp_tools.core.entitlements import Entitlements
+from bp_tools.core.utils import color_print as print
+from bp_tools.core.utils import start_live, stop_live
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +28,7 @@ class RunnerContext:
     config: AppConfig
     clients: dict[str, ApiClient]
     config_dir: Path | None = None
-    entitlements: Any = None
+    entitlements: Entitlements | None = None
     user_roles: dict[str, int] = field(default_factory=dict)
 
 
@@ -111,7 +113,7 @@ def _collect_usernames(tools: list[ToolConfig]) -> set[str]:
     Collect usernames referenced by enabled tools.
 
     Supports:
-    - ``config.username`` (str)
+    - ``config.username`` (str) — normalized to usernames list
     - ``config.usernames`` (list of str)
     - ``config.users`` (list of dicts with "username" key)
 
@@ -120,7 +122,7 @@ def _collect_usernames(tools: list[ToolConfig]) -> set[str]:
     """
     usernames: set[str] = set()
     for t in tools:
-        # Plural form: list of usernames
+        # Plural form: list of usernames (covers normalized "username" too)
         raw = t.config.get("usernames", [])
         if isinstance(raw, list) and all(isinstance(x, str) for x in raw):
             usernames.update(raw)
@@ -204,7 +206,7 @@ def _print_banner(version: str) -> None:
     print(f"by Revolt — Discord: Revolt8500 | v{version}\n")
 
 
-def _load_entitlements(fw_version: str) -> Any:
+def _load_entitlements(fw_version: str) -> Entitlements:
     """Fetch entitlements and check framework version."""
     from bp_tools.core.constants import ENTITLEMENTS_DISABLED
     from bp_tools.core.entitlements import Entitlements, fetch_entitlements
@@ -247,11 +249,13 @@ def _instantiate_bots(
         if tool is None:
             raise ValueError(f"Tool enabled in config but not found: {t.uuid}")
         try:
+            config = tool.bot_cls.CONFIG_CLASS.from_dict(t.config)
             bot = tool.bot_cls(
                 ctx=ctx,
-                tool_config=t.config,
+                config=config,
                 tool_uuid=tool.tool_uuid,
                 tool_version=tool.tool_version,
+                poll_interval=t.poll_interval,
             )  # type: ignore[call-arg]
             bots.append(bot)
         except PermissionError as exc:
@@ -261,86 +265,76 @@ def _instantiate_bots(
     return bots
 
 
+def _force_init_remaining(bots: list[BotBase]) -> None:
+    """Force-init bots that are stuck in a circular dependency."""
+    names = [b.name for b in bots]
+    print(f"  [!] Circular init dependency, forcing: {names}")
+    for b in bots:
+        try:
+            b.initialize()
+        except Exception as exc:
+            print(f"  [{b.name}] Init error: {exc}")
+
+
 def _initialize_bots(bots: list[BotBase]) -> None:
     """
     Call ``initialize()`` on each bot in dependency order.
 
     Each bot can declare ``init_before: list[str]`` — UUIDs of bots that
     must NOT initialize until this bot has initialized first.
-
-    Algorithm:
-      1. Build a master "blocked" set from all bots' ``init_before`` lists.
-      2. Iterate bots: if a bot's UUID is in the blocked set, skip it.
-      3. Initialize non-blocked bots, then remove UUIDs they block.
-      4. Repeat until all bots are initialized.
     """
-    initialized: set[str] = set()
     remaining = list(bots)
 
     while remaining:
-        # Build blocked set from bots that haven't initialized yet
         blocked: set[str] = set()
         for b in remaining:
-            for uuid in b.init_before:
-                blocked.add(uuid)
+            blocked.update(b.init_before)
 
         progressed = False
         next_remaining: list[BotBase] = []
 
         for b in remaining:
             if b.tool_uuid in blocked:
-                # This bot is blocked — someone else must init first
                 next_remaining.append(b)
                 continue
-
             try:
                 b.initialize()
             except Exception as exc:
                 print(f"  [{b.name}] Init error: {exc}")
-            initialized.add(b.tool_uuid)
             progressed = True
 
         remaining = next_remaining
 
         if not progressed and remaining:
-            # Circular dependency — just init the rest in order
-            names = [b.name for b in remaining]
-            print(f"  [!] Circular init dependency, forcing: {names}")
-            for b in remaining:
-                try:
-                    b.initialize()
-                except Exception as exc:
-                    print(f"  [{b.name}] Init error: {exc}")
+            _force_init_remaining(remaining)
             break
+
+
+def _tick_bot(
+    b: BotBase,
+    now: float,
+    last_run: dict[str, float],
+) -> None:
+    """Run a single bot tick if its interval has elapsed."""
+    elapsed = now - last_run[b.name]
+    if elapsed >= b.poll_interval:
+        try:
+            b.run_once()
+        except Exception as exc:
+            print(f"  [{b.name}] Error: {exc}")
+        last_run[b.name] = time.monotonic()
 
 
 def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
     """Main polling loop. Returns exit code."""
     start_live()
     last_run: dict[str, float] = {b.name: 0.0 for b in bots}
-    done: set[str] = set()  # run-once bots that have already executed
 
     try:
         while True:
             now = time.monotonic()
             for b in bots:
-                if b.name in done:
-                    continue
-                if b.poll_interval is None:
-                    # Run-once bot — execute once, then never again
-                    try:
-                        b.run_once()
-                    except Exception as exc:
-                        print(f"  [{b.name}] Error: {exc}")
-                    done.add(b.name)
-                    continue
-                elapsed = now - last_run[b.name]
-                if elapsed >= b.poll_interval:
-                    try:
-                        b.run_once()
-                    except Exception as exc:
-                        print(f"  [{b.name}] Error: {exc}")
-                    last_run[b.name] = time.monotonic()
+                _tick_bot(b, now, last_run)
             time.sleep(sleep_seconds)
     except KeyboardInterrupt:
         stop_live()
@@ -351,6 +345,80 @@ def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
     return 0  # unreachable but keeps mypy happy
 
 
+def _filter_tools(
+    only_tools: list[str],
+    enabled: list[ToolConfig],
+    registry: dict[str, LoadedTool],
+) -> list[ToolConfig]:
+    """Filter enabled tools by name or UUID."""
+    uuid_by_name = {lt.tool_name: lt.tool_uuid for lt in registry.values()}
+    filter_uuids: set[str] = set()
+    for name_or_uuid in only_tools:
+        if name_or_uuid in registry:
+            filter_uuids.add(name_or_uuid)
+        elif name_or_uuid in uuid_by_name:
+            filter_uuids.add(uuid_by_name[name_or_uuid])
+        else:
+            print(f"  Unknown tool: {name_or_uuid}")
+    return [t for t in enabled if t.uuid in filter_uuids]
+
+
+def _build_context(
+    cfg: AppConfig,
+    config_path: Path,
+    dry_run: bool,
+    bot_usernames: set[str],
+) -> RunnerContext:
+    """Create API clients, load entitlements, build RunnerContext."""
+    all_usernames = {u.username for u in cfg.users}
+
+    print(f"{len(all_usernames)} tokens found," " initializing user clients...")
+    from bp_tools.core.constants import RATE_LIMITS
+
+    clients = create_api_clients(
+        cfg, all_usernames, rate_limits=RATE_LIMITS, dry_run=dry_run
+    )
+
+    from bp_tools.core.constants import FRAMEWORK_VERSION
+
+    entitlements = _load_entitlements(FRAMEWORK_VERSION)
+
+    user_roles: dict[str, int] = {}
+    if entitlements is not None and getattr(entitlements, "group_id", 0) != 0:
+        from bp_tools.core.entitlements import resolve_user_role
+
+        for username, client in clients.items():
+            user_roles[username] = resolve_user_role(client, entitlements.group_id)
+
+    return RunnerContext(
+        config=cfg,
+        clients=clients,
+        config_dir=config_path.parent,
+        entitlements=entitlements,
+        user_roles=user_roles,
+    )
+
+
+def _print_tool_summary(
+    enabled: list[ToolConfig],
+    registry: dict[str, LoadedTool],
+    dry_run: bool,
+) -> None:
+    """Print the list of enabled tools."""
+    print()
+    print(f"Running {len(enabled)} tool(s):")
+    for t in enabled:
+        tool = registry.get(t.uuid)
+        interval = t.poll_interval
+        label = f"every {interval}s" if interval > 0 else "once"
+        name = tool.tool_name if tool else t.uuid
+        print(f"  - {name} ({label})")
+
+    if dry_run:
+        print("\n*** DRY RUN MODE" " — no POST/DELETE requests will be sent ***")
+    print()
+
+
 def start(
     config_path: Path,
     tools_package: str = "bp_tools.tools",
@@ -359,13 +427,13 @@ def start(
     only_tools: list[str] | None = None,
 ) -> int:
     """
-    Start runner: load config, create API clients, instantiate bots, run loop.
+    Start runner: load config, create clients, run bots.
 
     :param config_path: Path to config.yaml.
     :param tools_package: Tools root package.
     :param sleep_seconds: Delay between cycles.
-    :param dry_run: If True, POST/DELETE requests are printed not sent.
-    :param only_tools: If set, only run these tool names.
+    :param dry_run: If True, POST/DELETE are printed not sent.
+    :param only_tools: If set, only run these tool names/UUIDs.
     :returns: Exit code.
     """
     if sleep_seconds <= 0:
@@ -380,71 +448,18 @@ def start(
 
     enabled = _enabled_tools(cfg)
     if only_tools:
-        # Support both tool names and UUIDs in --tools filter
-        uuid_by_name = {lt.tool_name: lt.tool_uuid for lt in registry.values()}
-        filter_uuids = set()
-        for name_or_uuid in only_tools:
-            if name_or_uuid in registry:
-                filter_uuids.add(name_or_uuid)  # already a UUID
-            elif name_or_uuid in uuid_by_name:
-                filter_uuids.add(uuid_by_name[name_or_uuid])  # name → UUID
-            else:
-                print(f"  Unknown tool: {name_or_uuid}", warning=True)
-        enabled = [t for t in enabled if t.uuid in filter_uuids]
+        enabled = _filter_tools(only_tools, enabled, registry)
     if not enabled:
-        print("No enabled tools in config.", warning=True)
+        print("No enabled tools in config.")
         return 0
 
     bot_usernames = _collect_usernames(enabled)
     if not bot_usernames:
-        print("No usernames configured for enabled tools.", warning=True)
+        print("No usernames configured for enabled tools.")
         return 0
 
-    all_usernames = {u.username for u in cfg.users}
-    missing = sorted(bot_usernames - all_usernames)
-    if missing:
-        raise ValueError(f"Missing API tokens for usernames: {missing}")
-
-    print(f"{len(all_usernames)} tokens found, initializing user clients...")
-    from bp_tools.core.constants import RATE_LIMITS
-
-    rate_limits = RATE_LIMITS
-    clients = create_api_clients(
-        cfg, all_usernames, rate_limits=rate_limits, dry_run=dry_run
-    )
-
-    entitlements = _load_entitlements(FRAMEWORK_VERSION)
-
-    # Resolve user roles once (shared across all bots)
-    user_roles: dict[str, int] = {}
-    if not getattr(entitlements, "group_id", 0) == 0 and entitlements is not None:
-        from bp_tools.core.entitlements import resolve_user_role
-
-        for username, client in clients.items():
-            user_roles[username] = resolve_user_role(client, entitlements.group_id)
-
-    ctx = RunnerContext(
-        config=cfg,
-        clients=clients,
-        config_dir=config_path.parent,
-        entitlements=entitlements,
-        user_roles=user_roles,
-    )
-
-    print()
-    print(f"Running {len(enabled)} tool(s):")
-    for t in enabled:
-        tool = registry.get(t.uuid)
-        if tool and tool.bot_cls.poll_interval is not None:
-            label = f"every {tool.bot_cls.poll_interval}s"
-        else:
-            label = "once"
-        name = tool.tool_name if tool else t.uuid
-        print(f"  - {name} ({label})")
-
-    if dry_run:
-        print("\n*** DRY RUN MODE — no POST/DELETE requests will be sent ***")
-    print()
+    ctx = _build_context(cfg, config_path, dry_run, bot_usernames)
+    _print_tool_summary(enabled, registry, dry_run)
 
     bots = _instantiate_bots(enabled, registry, ctx)
     _initialize_bots(bots)

@@ -1,9 +1,12 @@
 """SQLite cache for rare item IDs."""
 
 import sqlite3
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator
+from typing import Generator
+
+from bp_tools.core.api import ApiClient
 
 DB_NAME = "rare_snagger.db"
 _DATA_DIR = "data"
@@ -88,36 +91,87 @@ def add_items(items: list[tuple[int, str]], config_dir: Path | None = None) -> i
 
 # ---- TEMPORARY FALLBACK — remove once API populates average_sales_price ----
 
+
 def load_rare_raps(config_dir: Path | None = None) -> dict[int, int]:
     """Load item_id -> rap mapping from the cache. (TEMPORARY FALLBACK)"""
-    from bp_tools.core.rap_utils import load_raps_from_db
+    with _connect(config_dir) as conn:
+        rows = conn.execute(
+            "SELECT item_id, rap FROM rare_items" " WHERE rap IS NOT NULL AND rap > 0"
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
+
+def import_rap_from_json(json_path: Path, config_dir: Path | None = None) -> int:
+    """TEMPORARY FALLBACK — import RAP values from a local JSON export."""
+    import json
+
+    with open(json_path, "r") as f:
+        raw = json.load(f)
+
+    items = raw.get("data", raw) if isinstance(raw, dict) else raw
+    if not isinstance(items, list):
+        return 0
+
+    updates: list[tuple[int, int]] = []
+    for item in items:
+        item_id = item.get("id")
+        value = item.get("value")
+        if isinstance(item_id, int) and isinstance(value, int) and value > 0:
+            updates.append((value, item_id))
+
+    if not updates:
+        return 0
 
     with _connect(config_dir) as conn:
-        return load_raps_from_db(conn)
+        conn.executemany(
+            "UPDATE rare_items SET rap = ? WHERE item_id = ?",
+            updates,
+        )
+        conn.commit()
+        return conn.total_changes
 
 
-def import_rap_from_json(
-    json_path: Path, config_dir: Path | None = None
-) -> int:
+def _process_page(
+    data: list,
+    existing_ids: set[int],
+    batch: list[tuple[int, str]],
+) -> tuple[int, int]:
+    """Process one page of browse results.
+
+    :returns: (new_count, seen_existing_count).
     """
-    TEMPORARY FALLBACK — import RAP values from a local JSON export.
-    Delegates to shared rap_utils.
-    """
-    from bp_tools.core.rap_utils import import_rap_from_json as _import
+    page_new = 0
+    seen_existing = 0
+    for item in data:
+        creator = item.get("creator", {})
+        creator_id = int(creator.get("id", 0)) if isinstance(creator, dict) else 0
+        if creator_id != 1:
+            continue
 
-    with _connect(config_dir) as conn:
-        return _import(json_path, conn)
+        item_id = item.get("id")
+        name = item.get("name", "")
+        if item_id is None:
+            continue
+
+        if item_id in existing_ids:
+            seen_existing += 1
+        else:
+            batch.append((item_id, name))
+            existing_ids.add(item_id)
+            page_new += 1
+
+    return page_new, seen_existing
 
 
 def init_rare_cache(
-    client: Any,
+    client: ApiClient,
     config_dir: Path | None = None,
-    log: Any | None = None,
+    log: Callable[[str, bool], None] | None = None,
 ) -> int:
     """
-    One-time full scan: paginate all rare items from creator ID 1 and cache them.
+    One-time full scan: paginate all rare items and cache them.
 
-    :param log: Optional callback ``(msg, overwrite)`` for progress updates.
+    :param log: Optional callback ``(msg, overwrite)`` for progress.
     :returns: Total number of rare items in cache after scan.
     """
     import time
@@ -132,8 +186,6 @@ def init_rare_cache(
 
     page = 1
     batch: list[tuple[int, str]] = []
-
-    # Load existing IDs once for fast lookup
     existing_ids = set(load_rare_ids(config_dir))
 
     while True:
@@ -152,27 +204,8 @@ def init_rare_cache(
         if not data:
             break
 
-        page_new = 0
-        seen_existing = 0
-        for item in data:
-            creator = item.get("creator", {})
-            creator_id = int(creator.get("id", 0)) if isinstance(creator, dict) else 0
-            if creator_id != 1:
-                continue
+        page_new, seen_existing = _process_page(data, existing_ids, batch)
 
-            item_id = item.get("id")
-            name = item.get("name", "")
-            if item_id is None:
-                continue
-
-            if item_id in existing_ids:
-                seen_existing += 1
-            else:
-                batch.append((item_id, name))
-                existing_ids.add(item_id)
-                page_new += 1
-
-        # If entire page was already cached, we're done
         if page_new == 0 and seen_existing > 0:
             _out(f"Page {page}: all items already cached — stopping.")
             break
@@ -183,5 +216,5 @@ def init_rare_cache(
 
     inserted = add_items(batch, config_dir)
     total = count_items(config_dir)
-    _out(f"DB init complete — inserted {inserted} new items, {total} total cached.")
+    _out(f"DB init complete — inserted {inserted} new items," f" {total} total cached.")
     return total

@@ -68,11 +68,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Failed to load config: {exc}", warning=True)
             return 2
 
+        from bp_tools.core.runner import discover_tools
+
+        registry = discover_tools()
         enabled = [t for t in cfg.tools.values() if t.enabled]
         print(f"Config: {args.config}")
         print(f"Enabled tools: {len(enabled)}")
         for t in enabled:
-            print(f"  - {t.name}")
+            tool = registry.get(t.uuid)
+            name = tool.tool_name if tool else "unknown"
+            print(f"  - {name} ({t.uuid})")
         return 0
 
     return start_runner(

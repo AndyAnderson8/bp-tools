@@ -16,10 +16,10 @@ Fails open — if the JSON can't be fetched, all bots are unrestricted.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
 
 import requests
 
+from bp_tools.core.api import ApiClient
 from bp_tools.core.constants import ENTITLEMENTS_URL
 
 
@@ -100,7 +100,7 @@ def fetch_entitlements(url: str = ENTITLEMENTS_URL) -> Entitlements:
     )
 
 
-def resolve_user_role(client: Any, group_id: int) -> int:
+def resolve_user_role(client: ApiClient, group_id: int) -> int:
     """
     Check a user's role_num in a group via the BrickPlanet API.
     Returns 0 if not a member or on error.

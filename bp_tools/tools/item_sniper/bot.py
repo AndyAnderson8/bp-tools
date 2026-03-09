@@ -1,7 +1,7 @@
 import time
-from typing import Any
 
 from bp_tools.core.contracts import BotBase
+from bp_tools.core.runner import RunnerContext
 from bp_tools.core.utils import color_print as print
 
 from .constants import WALLET_REFRESH_INTERVAL
@@ -25,10 +25,14 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
     name = "item_sniper"
     CONFIG_CLASS = ItemSniperConfig
 
-    poll_interval = 2.0
-
-    def __init__(self, ctx: Any, tool_config: dict[str, Any], **kwargs: Any) -> None:
-        super().__init__(ctx, tool_config, **kwargs)
+    def __init__(
+        self,
+        ctx: RunnerContext,
+        config: ItemSniperConfig,
+        poll_interval: float = 2.0,
+        **kwargs: str,
+    ) -> None:
+        super().__init__(ctx, config, poll_interval=poll_interval, **kwargs)
 
         # item_id → last known remaining_stock (0 means was sold out)
         self._stock_tracker: dict[int, int] = {}
@@ -137,7 +141,9 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         data = payload.get("data")
         if not isinstance(data, list):
-            self._log("Error — unexpected items payload, missing list under key 'data'.")
+            self._log(
+                "Error — unexpected items payload, missing list under key 'data'."
+            )
             self._loop_iterations += 1
             return
 

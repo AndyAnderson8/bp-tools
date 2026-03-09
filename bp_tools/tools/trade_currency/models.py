@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
@@ -21,23 +21,8 @@ class TradeSide(Enum):
         return "bits" if self is TradeSide.BID else "credits"
 
     @property
-    def equiv_label(self) -> str:
-        """Currency received."""
-        return "credits" if self is TradeSide.BID else "bits"
-
-    @property
-    def wallet_key(self) -> str:
-        """Key in the wallet dict."""
-        return "bits" if self is TradeSide.BID else "credits"
-
-    @property
-    def spot_label(self) -> str:
-        """Human-readable direction for log messages."""
-        return "bits-to-credit" if self is TradeSide.BID else "credit-to-bits"
-
-    @property
     def tick_sign(self) -> int:
-        """Direction tick is applied: +1 for bids (higher is better), -1 for asks (lower is better)."""
+        """Direction tick: +1 for bids, -1 for asks."""
         return 1 if self is TradeSide.BID else -1
 
     def clamp_rate(self, rate: float, limit: float) -> float:
@@ -92,7 +77,6 @@ class CurrencyExchangeConfig(BotConfigBase):
           max-rate: 70.00         # floor: won't accept less than 70 bits/credit
     """
 
-    username: str
     offer_bits: ExchangeSideConfig | None = None
     offer_credits: ExchangeSideConfig | None = None
 
@@ -100,7 +84,11 @@ class CurrencyExchangeConfig(BotConfigBase):
     def from_dict(cls, raw: dict[str, Any]) -> "CurrencyExchangeConfig":
         from bp_tools.core.config_utils import parse_config
 
-        config = parse_config(cls, raw)
+        normalized = dict(raw)
+        if "username" in normalized and "usernames" not in normalized:
+            normalized["usernames"] = [normalized.pop("username")]
+
+        config = parse_config(cls, normalized)
 
         if config.offer_bits is None and config.offer_credits is None:
             raise ValueError(

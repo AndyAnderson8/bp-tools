@@ -1,4 +1,5 @@
 import sys
+
 from rich.console import Console, Group
 from rich.live import Live
 from rich.text import Text
@@ -50,12 +51,17 @@ def _gradient_text(text: str, warning: bool = False) -> Text:
 def _build_status_display() -> Group:
     """Build the Rich renderable for the status dashboard."""
     parts = [Text(""), _gradient_text("Current status(es):")]
-    for line in _status_lines.values():
+    for key, line in _status_lines.items():
+        if not line:
+            continue
+        if key.startswith("_"):
+            parts.append(Text(""))
         parts.append(_gradient_text(line))
     return Group(*parts)
 
 
 # -- lifecycle ---------------------------------------------------------------
+
 
 def start_live() -> None:
     """Start the live status display.  Call once at runner startup."""
@@ -81,6 +87,7 @@ def stop_live() -> None:
 
 # -- public API --------------------------------------------------------------
 
+
 def set_status(source: str, text: str) -> None:
     """Update or create the status line for *source* and redraw."""
     _status_lines[source] = text
@@ -89,7 +96,9 @@ def set_status(source: str, text: str) -> None:
 
 
 def color_print(
-    text: str = "", warning: bool = False, **_kw: object,
+    text: str = "",
+    warning: bool = False,
+    **_kw: object,
 ) -> None:
     """
     Print a regular scrolling log message with gradient colouring.
@@ -98,7 +107,7 @@ def color_print(
     the coordination so log messages scroll above the status block.
     """
     if _live is not None:
-        _live.console.print(_gradient_text(text))
+        _live.console.print(_gradient_text(text, warning=warning))
     else:
         # Fallback before live is started (e.g. banner)
         _gradient_print_raw(text, warning=warning)

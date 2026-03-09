@@ -17,6 +17,7 @@ Market-maker bot for the BrickPlanet currency exchange.
   enabled: true
   config:
     username: "Revolt"
+    poll-interval: 60             # seconds between cycles (default: 60)
     offer-bits:                  # BID side: sell bits → buy credits
       amount: 200000             # bits to offer
       max-rate: 40.00            # ceiling: won't pay more than 40 bits/credit
@@ -28,6 +29,7 @@ Market-maker bot for the BrickPlanet currency exchange.
 | Field | Type | Description |
 |-------|------|-------------|
 | `username` | string | Account to trade with |
+| `poll-interval` | float | Seconds between cycles (default: 60) |
 | `offer-bits.amount` | int | Bits to place on the bid side |
 | `offer-bits.max-rate` | float | Max bits/credit willing to pay |
 | `offer-credits.amount` | int | Credits to place on the ask side |
@@ -40,5 +42,6 @@ Either side can be omitted to run one-sided.
 | File | Purpose |
 |------|---------|
 | `bot.py` | `CurrencyExchangeBot` - orderbook polling, order management |
-| `models.py` | `CurrencyExchangeConfig`, `ExchangeSideConfig` dataclasses |
+| `models.py` | `CurrencyExchangeConfig`, `ExchangeSideConfig`, `TradeSide`, `SideState` |
+| `constants.py` | Tuning constants (tick size, wallet refresh interval) |
 | `__init__.py` | Plugin registration |

@@ -1,9 +1,12 @@
-"""SQLite cache for rare item IDs and offer tracking."""
+"""SQLite cache for rare item IDs."""
 
 import sqlite3
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Generator
+from typing import Generator
+
+from bp_tools.core.api import ApiClient
 
 DB_NAME = "rare_offerer.db"
 _DATA_DIR = "data"
@@ -28,16 +31,7 @@ def _connect(
         CREATE TABLE IF NOT EXISTS rare_items (
             item_id   INTEGER PRIMARY KEY,
             name      TEXT NOT NULL DEFAULT '',
-            added_at  TEXT NOT NULL DEFAULT (datetime('now')),
-            rap       INTEGER DEFAULT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS placed_offers (
-            item_id    INTEGER PRIMARY KEY,
-            offer_id   INTEGER NOT NULL,
-            amount     INTEGER NOT NULL,
-            placed_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            added_at  TEXT NOT NULL DEFAULT (datetime('now'))
         )
     """)
     conn.commit()
@@ -48,8 +42,9 @@ def _connect(
 
 
 # ------------------------------------------------------------------
-# Rare item cache (mirrors snagger pattern)
+# Rare item cache
 # ------------------------------------------------------------------
+
 
 def load_rare_ids(config_dir: Path | None = None) -> list[int]:
     with _connect(config_dir) as conn:
@@ -59,7 +54,9 @@ def load_rare_ids(config_dir: Path | None = None) -> list[int]:
         return [r[0] for r in rows]
 
 
-def load_rare_names(config_dir: Path | None = None) -> dict[int, str]:
+def load_rare_names(
+    config_dir: Path | None = None,
+) -> dict[int, str]:
     with _connect(config_dir) as conn:
         rows = conn.execute("SELECT item_id, name FROM rare_items").fetchall()
         return {r[0]: r[1] for r in rows}
@@ -71,11 +68,14 @@ def count_items(config_dir: Path | None = None) -> int:
         return row[0] if row else 0
 
 
-def add_items(items: list[tuple[int, str]], config_dir: Path | None = None) -> int:
+def add_items(
+    items: list[tuple[int, str]],
+    config_dir: Path | None = None,
+) -> int:
     with _connect(config_dir) as conn:
         before = conn.execute("SELECT COUNT(*) FROM rare_items").fetchone()[0]
         conn.executemany(
-            "INSERT OR IGNORE INTO rare_items (item_id, name) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO rare_items" " (item_id, name) VALUES (?, ?)",
             items,
         )
         conn.commit()
@@ -83,75 +83,50 @@ def add_items(items: list[tuple[int, str]], config_dir: Path | None = None) -> i
         return after - before
 
 
-# ---- TEMPORARY FALLBACK — remove once API populates average_sales_price ----
-
-def load_rare_raps(config_dir: Path | None = None) -> dict[int, int]:
-    """Load item_id -> rap mapping from the cache. (TEMPORARY FALLBACK)"""
-    from bp_tools.core.rap_utils import load_raps_from_db
-
-    with _connect(config_dir) as conn:
-        return load_raps_from_db(conn)
-
-
-def import_rap_from_json(
-    json_path: Path, config_dir: Path | None = None
-) -> int:
-    """TEMPORARY FALLBACK — import RAP values from a local JSON export."""
-    from bp_tools.core.rap_utils import import_rap_from_json as _import
-
-    with _connect(config_dir) as conn:
-        return _import(json_path, conn)
-
-
 # ------------------------------------------------------------------
-# Offer tracking
+# Cache initialisation
 # ------------------------------------------------------------------
 
-def get_existing_offers(config_dir: Path | None = None) -> dict[int, int]:
-    """Return {item_id: offer_id} for all tracked offers."""
-    with _connect(config_dir) as conn:
-        rows = conn.execute("SELECT item_id, offer_id FROM placed_offers").fetchall()
-        return {r[0]: r[1] for r in rows}
 
+def _process_page(
+    data: list,
+    existing_ids: set[int],
+    batch: list[tuple[int, str]],
+) -> tuple[int, int]:
+    """Process one page of browse results.
 
-def record_offer(
-    item_id: int, offer_id: int, amount: int, config_dir: Path | None = None
-) -> None:
-    """Track a newly placed offer."""
-    with _connect(config_dir) as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO placed_offers (item_id, offer_id, amount) VALUES (?, ?, ?)",
-            (item_id, offer_id, amount),
-        )
-        conn.commit()
+    :returns: (new_count, seen_existing_count).
+    """
+    page_new = 0
+    seen_existing = 0
+    for item in data:
+        creator = item.get("creator", {})
+        creator_id = int(creator.get("id", 0)) if isinstance(creator, dict) else 0
+        if creator_id != 1:
+            continue
 
+        item_id = item.get("id")
+        name = item.get("name", "")
+        if item_id is None:
+            continue
 
-def clear_offer(item_id: int, config_dir: Path | None = None) -> None:
-    """Remove a single tracked offer."""
-    with _connect(config_dir) as conn:
-        conn.execute("DELETE FROM placed_offers WHERE item_id = ?", (item_id,))
-        conn.commit()
+        if item_id in existing_ids:
+            seen_existing += 1
+        else:
+            batch.append((item_id, name))
+            existing_ids.add(item_id)
+            page_new += 1
 
+    return page_new, seen_existing
 
-def clear_offers(config_dir: Path | None = None) -> int:
-    """Clear all tracked offers. Returns count deleted."""
-    with _connect(config_dir) as conn:
-        conn.execute("DELETE FROM placed_offers")
-        conn.commit()
-        return conn.total_changes
-
-
-# ------------------------------------------------------------------
-# Cache initialisation (same pattern as snagger)
-# ------------------------------------------------------------------
 
 def init_rare_cache(
-    client: Any,
+    client: ApiClient,
     config_dir: Path | None = None,
-    log: Any | None = None,
+    log: Callable[[str, bool], None] | None = None,
 ) -> int:
     """
-    One-time full scan: paginate all rare items from creator ID 1 and cache them.
+    One-time full scan: paginate all rare items and cache them.
     """
     import time
 
@@ -183,35 +158,20 @@ def init_rare_cache(
         if not data:
             break
 
-        page_new = 0
-        seen_existing = 0
-        for item in data:
-            creator = item.get("creator", {})
-            creator_id = int(creator.get("id", 0)) if isinstance(creator, dict) else 0
-            if creator_id != 1:
-                continue
-
-            item_id = item.get("id")
-            name = item.get("name", "")
-            if item_id is None:
-                continue
-
-            if item_id in existing_ids:
-                seen_existing += 1
-            else:
-                batch.append((item_id, name))
-                existing_ids.add(item_id)
-                page_new += 1
+        page_new, seen_existing = _process_page(data, existing_ids, batch)
 
         if page_new == 0 and seen_existing > 0:
-            _out(f"Page {page}: all items already cached — stopping.")
+            _out(f"Page {page}: all items already cached" " — stopping.")
             break
 
-        _out(f"Building rare item cache... (page {page})", True)
+        _out(
+            f"Building rare item cache... (page {page})",
+            True,
+        )
         page += 1
         time.sleep(0.5)
 
     inserted = add_items(batch, config_dir)
     total = count_items(config_dir)
-    _out(f"DB init complete — inserted {inserted} new items, {total} total cached.")
+    _out(f"DB init complete — inserted {inserted} new items," f" {total} total cached.")
     return total

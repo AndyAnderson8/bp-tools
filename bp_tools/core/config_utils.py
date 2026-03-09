@@ -42,7 +42,6 @@ def parse_config(cls: type, raw: dict[str, Any], *, _path: str = "") -> Any:
         value = normalized.get(f.name, _MISSING)
 
         if value is _MISSING:
-            # Field not provided — check for a default
             if f.default is not dataclasses.MISSING:
                 continue
             if f.default_factory is not dataclasses.MISSING:  # type: ignore[arg-type]
@@ -54,61 +53,82 @@ def parse_config(cls: type, raw: dict[str, Any], *, _path: str = "") -> Any:
     return cls(**kwargs)
 
 
+# ── Type coercion dispatch ───────────────────────────────────────────
+
+
 def _coerce(ftype: type, value: Any, label: str) -> Any:
     """Coerce *value* to the expected *ftype* with validation."""
     origin = get_origin(ftype)
-    args = get_args(ftype)
 
-    # ── Union / Optional (X | None) ──────────────────────────────
     if origin is Union or origin is types.UnionType:
-        non_none = [a for a in args if a is not type(None)]
-        if value is None:
-            if type(None) in args:
-                return None
-            raise TypeError(f"{label} cannot be None")
-        if len(non_none) == 1:
-            return _coerce(non_none[0], value, label)
-        # Multiple non-None types — try each
-        for t in non_none:
-            try:
-                return _coerce(t, value, label)
-            except (TypeError, ValueError):
-                continue
-        raise TypeError(f"{label}: could not coerce value to any of {non_none}")
+        return _coerce_union(ftype, value, label)
 
-    # ── set[X] ───────────────────────────────────────────────────
     if origin is set:
-        if not isinstance(value, (list, set)):
-            raise TypeError(f"{label} must be a list or set")
-        inner = args[0] if args else Any
-        return {_coerce(inner, v, f"{label}[]") for v in value}
+        return _coerce_set(ftype, value, label)
 
-    # ── list[X] ──────────────────────────────────────────────────
     if origin is list:
-        if not isinstance(value, list):
-            raise TypeError(f"{label} must be a list")
-        inner = args[0] if args else Any
-        if dataclasses.is_dataclass(inner):
-            return [
-                parse_config(inner, v, _path=f"{label}[].")
-                if isinstance(v, dict) else v
-                for v in value
-            ]
-        return [_coerce(inner, v, f"{label}[]") for v in value]
+        return _coerce_list(ftype, value, label)
 
-    # ── dict (pass-through) ──────────────────────────────────────
     if origin is dict:
         if not isinstance(value, dict):
             raise TypeError(f"{label} must be a mapping")
         return value
 
-    # ── Nested dataclass ─────────────────────────────────────────
     if dataclasses.is_dataclass(ftype):
         if not isinstance(value, dict):
             raise TypeError(f"{label} must be a mapping")
         return parse_config(ftype, value, _path=f"{label}.")
 
-    # ── Primitives ───────────────────────────────────────────────
+    return _coerce_primitive(ftype, value, label)
+
+
+def _coerce_union(ftype: type, value: Any, label: str) -> Any:
+    """Handle Union / Optional (X | None)."""
+    args = get_args(ftype)
+    non_none = [a for a in args if a is not type(None)]
+
+    if value is None:
+        if type(None) in args:
+            return None
+        raise TypeError(f"{label} cannot be None")
+
+    if len(non_none) == 1:
+        return _coerce(non_none[0], value, label)
+
+    for t in non_none:
+        try:
+            return _coerce(t, value, label)
+        except (TypeError, ValueError):
+            continue
+    raise TypeError(f"{label}: could not coerce to any of {non_none}")
+
+
+def _coerce_set(ftype: type, value: Any, label: str) -> set:
+    """Handle set[X]."""
+    if not isinstance(value, (list, set)):
+        raise TypeError(f"{label} must be a list or set")
+    args = get_args(ftype)
+    inner = args[0] if args else Any
+    return {_coerce(inner, v, f"{label}[]") for v in value}
+
+
+def _coerce_list(ftype: type, value: Any, label: str) -> list:
+    """Handle list[X], including list-of-dataclass."""
+    if not isinstance(value, list):
+        raise TypeError(f"{label} must be a list")
+    args = get_args(ftype)
+    inner = args[0] if args else Any
+
+    if dataclasses.is_dataclass(inner):
+        return [
+            (parse_config(inner, v, _path=f"{label}[].") if isinstance(v, dict) else v)
+            for v in value
+        ]
+    return [_coerce(inner, v, f"{label}[]") for v in value]
+
+
+def _coerce_primitive(ftype: type, value: Any, label: str) -> Any:
+    """Handle int, float, str, bool, and fallback."""
     if ftype is int:
         if not isinstance(value, int) or isinstance(value, bool):
             raise TypeError(f"{label} must be an int, got {type(value).__name__}")
@@ -123,6 +143,4 @@ def _coerce(ftype: type, value: Any, label: str) -> Any:
         return value
     if ftype is bool:
         return bool(value)
-
-    # Fallback — return as-is
     return value

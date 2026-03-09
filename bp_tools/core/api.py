@@ -3,13 +3,13 @@
 import fnmatch
 import time
 from collections import deque
-from pathlib import Path
 from typing import Any, Optional
 
 from requests import Response, Session
 
 from bp_tools.core.constants import BASE_URL, RATE_LIMITS
 from bp_tools.core.utils import color_print as print
+from bp_tools.core.utils import set_status
 
 
 class _RateLimiter:
@@ -29,10 +29,13 @@ class _RateLimiter:
         if len(self._timestamps) >= self._limit:
             sleep_for = self._timestamps[0] + self._window - now
             if sleep_for > 0:
-                print(
-                    f"Rate limit ({self._limit}/{self._window}s) — sleeping {sleep_for:.1f}s"
+                set_status(
+                    "_rate_limit",
+                    f"Rate limit ({self._limit}/{self._window}s)"
+                    f" — sleeping {sleep_for:.1f}s",
                 )
                 time.sleep(sleep_for)
+                set_status("_rate_limit", "")
         self._timestamps.append(time.monotonic())
 
 
@@ -66,7 +69,7 @@ class ApiClient:
         self.dry_run = dry_run
 
         # Rate limiting
-        rl = rate_limits or _DEFAULT_RATE_LIMITS
+        rl = rate_limits or RATE_LIMITS
         tiers_raw = rl.get("tiers", {})
         self._limiters: dict[str, _RateLimiter] = {}
         for tier_name, tier_cfg in tiers_raw.items():
@@ -100,8 +103,12 @@ class ApiClient:
         """Sleep on server-side 429 as a fallback. Returns True if retryable."""
         if response.status_code == 429:
             retry_after = int(response.headers.get("Retry-After", "5")) + 1
-            print(f"429 Too Many Requests — sleeping {retry_after}s")
+            set_status(
+                "_rate_limit",
+                f"429 Too Many Requests — sleeping {retry_after}s",
+            )
             time.sleep(retry_after)
+            set_status("_rate_limit", "")
             return True
         return False
 
@@ -123,7 +130,12 @@ class ApiClient:
             response = self._session.get(url, params=params)
             if not self._handle_429(response):
                 break
-        response.raise_for_status()
+        if not response.ok:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text
+            raise RuntimeError(f"{response.status_code} {path}: {detail}")
         return response.json()
 
     def post(
@@ -147,7 +159,12 @@ class ApiClient:
             response = self._session.post(url, json=json_body)
             if not self._handle_429(response):
                 break
-        response.raise_for_status()
+        if not response.ok:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text
+            raise RuntimeError(f"{response.status_code} {path}: {detail}")
         return response.json()
 
     def delete(self, path: str) -> dict[str, Any]:
@@ -166,7 +183,12 @@ class ApiClient:
             response = self._session.delete(url)
             if not self._handle_429(response):
                 break
-        response.raise_for_status()
+        if not response.ok:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text
+            raise RuntimeError(f"{response.status_code} {path}: {detail}")
         return response.json()
 
     # ------------------------------------------------------------------

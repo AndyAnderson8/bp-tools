@@ -2,6 +2,7 @@ import time
 from typing import Any
 
 from bp_tools.core.contracts import BotBase
+from bp_tools.core.runner import RunnerContext
 
 from .constants import TICK, WALLET_REFRESH_INTERVAL
 from .models import CurrencyExchangeConfig, ExchangeSideConfig, SideState, TradeSide
@@ -29,14 +30,19 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
 
     name = "trade_currency"
     CONFIG_CLASS = CurrencyExchangeConfig
-    poll_interval = 60.0  # monitor and adjust
     init_before = [
         "2a0b9214-7f29-41f2-b913-067ff45fc778",  # item_sniper
         "8e61f94d-9ac5-4ca9-b1d9-ef60f0aa6a05",  # rare_snagger
     ]
 
-    def __init__(self, ctx: Any, tool_config: dict[str, Any], **kwargs: Any) -> None:
-        super().__init__(ctx, tool_config, **kwargs)
+    def __init__(
+        self,
+        ctx: RunnerContext,
+        config: CurrencyExchangeConfig,
+        poll_interval: float = 60.0,
+        **kwargs: str,
+    ) -> None:
+        super().__init__(ctx, config, poll_interval=poll_interval, **kwargs)
 
         # Per-side state (replaces the old _ob_* / _oc_* instance vars)
         self._sides: dict[TradeSide, SideState] = {
@@ -87,7 +93,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 continue
             if bid_placed:
                 time.sleep(1.0)
-            available = self._wallet.get(side.wallet_key, 0)
+            available = self._wallet.get(side.label, 0)
             amount = min(cfg.amount, available)
             if amount > 0:
                 rate = self._compute_rate(side, cfg)
@@ -105,7 +111,11 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
 
     def _config_for(self, side: TradeSide) -> ExchangeSideConfig | None:
         """Return the config for the given side, or None if not configured."""
-        return self.config.offer_bits if side is TradeSide.BID else self.config.offer_credits
+        return (
+            self.config.offer_bits
+            if side is TradeSide.BID
+            else self.config.offer_credits
+        )
 
     def _best_price(self, side: TradeSide) -> float | None:
         """Best bid or best ask from the orderbook."""
@@ -170,10 +180,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             order_id = result.get("data", {}).get("id")
             state = self._sides[side]
             state.amount = amount
-            equiv = side.equivalent(amount, rate)
-            self._log(
-                f"Posted {amount:,} {side.label} @ {rate:.2f} ({equiv:,} {side.equiv_label})"
-            )
+            self._log(f"Posted {amount:,} {side.label} @ {rate:.2f}")
             return order_id
         except Exception as exc:
             self._log(f"Failed to place {side.label} order — {exc}")
@@ -267,7 +274,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         assert cfg is not None
         state = self._sides[side]
         wallet = self._get_cached_wallet()
-        available = wallet.get(side.wallet_key, 0)
+        available = wallet.get(side.label, 0)
         if available <= 0:
             return
         rate = self._compute_rate(side, cfg)
@@ -298,14 +305,15 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 self._cancel_and_repost(
                     side,
                     ideal,
-                    f"Overtaken — {side.spot_label} spot rate moved ({state.rate:.2f} → {best:.2f})",
+                    f"Overtaken — {side.label} spot rate moved "
+                    f"({state.rate:.2f} → {best:.2f})",
                 )
                 return True
             elif abs(ideal - state.rate) >= TICK:
                 self._cancel_and_repost(
                     side,
                     ideal,
-                    f"Widening — {side.spot_label} offer retracted @ {state.rate:.2f}",
+                    f"Widening — {side.label} offer retracted @ {state.rate:.2f}",
                 )
                 return True
         elif state.order_id is None:
@@ -340,9 +348,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                     continue
                 state = self._sides[side]
                 if state.rate is not None and state.amount is not None:
-                    parts.append(
-                        f"{state.amount:,} {side.label} @ {state.rate:.2f}"
-                    )
+                    parts.append(f"{state.amount:,} {side.label} @ {state.rate:.2f}")
                 else:
                     parts.append(f"{side.label}: inactive")
             position = ", ".join(parts)
@@ -356,7 +362,6 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
 
     def execute(self) -> None:
         self._monitor_and_repost()
-
 
     def _monitor_and_repost(self) -> None:
         bid_acted = self._monitor_side(TradeSide.BID)

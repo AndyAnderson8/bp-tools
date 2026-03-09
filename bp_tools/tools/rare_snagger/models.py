@@ -40,9 +40,10 @@ class SnaggerConfig(BotConfigBase):
             max-credits: 0        # skip this item entirely
     """
 
-    username: str
     max_credits: int = 500
-    rap_percentage: int = 0  # 0 = disabled; e.g. 50 = buy if price <= 50% of avg sale price
+    rap_percentage: int = (
+        0  # 0 = disabled; e.g. 50 = buy if price <= 50% of avg sale price
+    )
     overrides: dict[int, int] = field(default_factory=dict)  # item_id → max_credits
 
     def max_for(self, item_id: int) -> int:
@@ -68,5 +69,9 @@ class SnaggerConfig(BotConfigBase):
 
         # Strip overrides from raw so parse_config doesn't choke on it
         clean = {k: v for k, v in raw.items() if k != "overrides"}
+        # Normalize singular username → usernames list
+        if "username" in clean and "usernames" not in clean:
+            clean["usernames"] = [clean.pop("username")]
+
         config = parse_config(cls, {**clean, "overrides": overrides})
         return config

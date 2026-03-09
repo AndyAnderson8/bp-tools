@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from bp_tools.core.contracts import BotConfigBase
@@ -30,13 +30,8 @@ class ItemSniperConfig(BotConfigBase):
         rares-only: false            # true = only buy rare/limited items
     """
 
-    users: list[UserSniperConfig]
+    users: list[UserSniperConfig] = field(default_factory=list)
     credit_to_bits_ratio: int = 50
-
-    @property
-    def usernames(self) -> list[str]:
-        """All usernames for runner compatibility."""
-        return [u.username for u in self.users]
 
     def caps_for(self, username: str) -> UserSniperConfig:
         """Look up per-user caps."""
@@ -77,11 +72,13 @@ class ItemSniperConfig(BotConfigBase):
         # Parse remaining fields (sans users)
         clean = {k: v for k, v in raw.items() if k not in ("users", "usernames")}
         clean["users"] = []  # placeholder to satisfy required field
+        clean["usernames"] = [u.username for u in users]
         base = parse_config(cls, clean)
 
         # Replace with real users list
         return cls(
             users=users,
+            usernames=[u.username for u in users],
             credit_to_bits_ratio=base.credit_to_bits_ratio,
         )
 
