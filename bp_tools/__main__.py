@@ -4,7 +4,7 @@ from pathlib import Path
 
 from bp_tools.core.config import load_config
 from bp_tools.core.runner import start as start_runner
-from bp_tools.core.utils import color_print as print
+from bp_tools.core.utils import log_print as print
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

@@ -2,7 +2,6 @@ import time
 
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
-from bp_tools.core.utils import color_print as print
 
 from .constants import WALLET_REFRESH_INTERVAL
 from .models import ItemSniperConfig, ShopItem, UserSniperConfig
@@ -278,7 +277,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         username = user_cfg.username
         client = self._ctx.clients.get(username)
         if client is None:
-            print(f"  [{username}] No API client — skipping.")
+            self._log(f"[{username}] No API client — skipping.")
             return
 
         wallet = self._get_cached_user_wallet(username)
@@ -287,17 +286,17 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             wallet = self._refresh_user_wallet(username)
             pick = self._pick_currency(item, user_cfg, wallet)
             if pick is None:
-                print(f"  [{username}] Can't afford / exceeds caps — skipping.")
+                self._log(f"[{username}] Can't afford / exceeds caps — skipping.")
                 return
 
         currency, price = pick
 
         delay = self._user_delays.get(username, 0.0)
         if delay > 0:
-            print(f"  [{username}] Waiting {delay:.0f}s (role restricted)...")
+            self._log(f"[{username}] Waiting {delay:.0f}s (role restricted)...")
             time.sleep(delay)
 
-        print(f"  [{username}] Buying with {currency} ({price:,})")
+        self._log(f"[{username}] Buying with {currency} ({price:,})")
 
         try:
             result = client.buy_item(
@@ -306,10 +305,10 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             )
             msg = result.get("data", {}).get("message", "Success")
             backpack_id = result.get("data", {}).get("backpack_id")
-            print(f"  [{username}] Purchased! {msg} (backpack ID: {backpack_id})")
+            self._log(f"[{username}] Purchased! {msg} (backpack ID: {backpack_id})")
             self._refresh_user_wallet(username)
         except Exception as exc:
-            print(f"  [{username}] Buy failed — {exc}")
+            self._log(f"[{username}] Buy failed — {exc}")
 
     def execute(self) -> None:
         if not self._items_to_buy:

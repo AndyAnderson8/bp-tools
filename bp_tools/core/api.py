@@ -8,7 +8,7 @@ from typing import Any, Optional
 from requests import Response, Session
 
 from bp_tools.core.constants import BASE_URL, RATE_LIMITS
-from bp_tools.core.utils import color_print as print
+from bp_tools.core.utils import log_print as print
 from bp_tools.core.utils import set_status
 
 

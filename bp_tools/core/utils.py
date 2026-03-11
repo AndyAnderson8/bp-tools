@@ -95,21 +95,21 @@ def set_status(source: str, text: str) -> None:
         _live.update(_build_status_display())
 
 
-def color_print(
+def log_print(
     text: str = "",
     warning: bool = False,
     **_kw: object,
 ) -> None:
     """
-    Print a regular scrolling log message with gradient colouring.
+    Print a scrolling log message with gradient colouring.
 
-    Works correctly alongside the Live status display — Rich handles
-    the coordination so log messages scroll above the status block.
+    When the Live status display is active, prints above the status
+    block so it isn't overwritten.  Otherwise falls through to raw
+    ANSI gradient output.
     """
     if _live is not None:
         _live.console.print(_gradient_text(text, warning=warning))
     else:
-        # Fallback before live is started (e.g. banner)
         _gradient_print_raw(text, warning=warning)
 
 

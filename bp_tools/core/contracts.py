@@ -100,9 +100,9 @@ class BotBase(ABC, Generic[C]):
         if overwrite:
             self._set_status(prefixed)
             return
-        from bp_tools.core.utils import color_print
+        from bp_tools.core.utils import log_print
 
-        color_print(prefixed)
+        log_print(prefixed)
 
     def _set_status(self, text: str) -> None:
         """Update this bot's live status line in the dashboard."""

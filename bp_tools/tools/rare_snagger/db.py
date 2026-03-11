@@ -176,7 +176,7 @@ def init_rare_cache(
     """
     import time
 
-    from bp_tools.core.utils import color_print as print
+    from bp_tools.core.utils import log_print as print
 
     def _out(msg: str, overwrite: bool = False) -> None:
         if log is not None:

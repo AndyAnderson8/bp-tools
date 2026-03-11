@@ -9,7 +9,7 @@ from bp_tools.core.api import ApiClient
 from bp_tools.core.config import AppConfig, ToolConfig, load_config
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.entitlements import Entitlements
-from bp_tools.core.utils import color_print as print
+from bp_tools.core.utils import log_print as print
 from bp_tools.core.utils import start_live, stop_live
 
 
