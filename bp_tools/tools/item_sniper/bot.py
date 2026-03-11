@@ -53,6 +53,9 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             self._refresh_user_wallet(user_cfg.username)
         self._log_wallets()
 
+        # Seed the stock tracker so existing items aren't treated as "new"
+        self._seed_tracker()
+
     def authorize(self) -> None:
         """
         Custom auth for item_sniper based on role num.
@@ -91,6 +94,34 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
                 self._user_delays[username] = delay_s
             else:
                 self._user_delays[username] = 0.0
+
+    def _seed_tracker(self) -> None:
+        """Poll rares and all items once to seed trackers without buying."""
+        client = self._next_get_client()
+        seeded = 0
+
+        for rare_flag, label in [(True, "rares"), (None, "all items")]:
+            try:
+                payload = client.browse_items(
+                    sort="newest", per_page=50, rare=rare_flag,
+                )
+            except Exception as exc:
+                self._log(f"Error — seeding {label}: {exc}")
+                continue
+
+            data = payload.get("data")
+            if not isinstance(data, list):
+                continue
+
+            items = [ShopItem.from_api(item) for item in data]
+            items = [item for item in items if item.creator_id == 1]
+
+            for item in items:
+                self._stock_tracker[item.item_id] = item.remaining_stock
+                self._on_sale_tracker[item.item_id] = item.on_sale
+                seeded += 1
+
+        self._log(f"Seeded tracker with {seeded} items", True)
 
     def _resolve_poll_mode(self) -> tuple[bool | None, str]:
         """Decide whether to poll rare-only or all items."""
