@@ -36,6 +36,8 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         # item_id → last known remaining_stock (0 means was sold out)
         self._stock_tracker: dict[int, int] = {}
+        # item_id → last known on_sale flag
+        self._on_sale_tracker: dict[int, bool] = {}
         self._items_to_buy: list[ShopItem] = []
         self._loop_iterations: int = 0
         self._newest_rare: str = ""
@@ -100,8 +102,9 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         return None, "items"
 
     def _detect_buyable(self, item: ShopItem) -> None:
-        """Check a single item for buy signals (new or restocked)."""
+        """Check a single item for buy signals (new, restocked, or newly on sale)."""
         prev_stock = self._stock_tracker.get(item.item_id)
+        was_on_sale = self._on_sale_tracker.get(item.item_id)
 
         if item.rare:
             if prev_stock is None:
@@ -110,11 +113,15 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             elif prev_stock == 0 and item.remaining_stock > 0 and item.on_sale:
                 self._log(f"Restock detected — {item}")
                 self._items_to_buy.append(item)
+            elif was_on_sale is False and item.on_sale and item.remaining_stock > 0:
+                self._log(f"Went on sale — {item}")
+                self._items_to_buy.append(item)
         else:
             if prev_stock is None and item.on_sale:
                 self._items_to_buy.append(item)
 
         self._stock_tracker[item.item_id] = item.remaining_stock
+        self._on_sale_tracker[item.item_id] = item.on_sale
 
     def update(self) -> None:
         self._items_to_buy.clear()

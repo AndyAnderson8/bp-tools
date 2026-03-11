@@ -197,17 +197,24 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         """
         Compute the optimal rate for the given side.
 
+        - Filters out orderbook levels beyond our max_rate before analysis.
         - If at top of book: regress to second_best ± TICK.
         - If NOT at top: go aggressive to beat the best.
         - Clamped at max_rate.
         """
         state = self._sides[side]
-        best = self._best_price(side)
+
+        # Only consider levels within our limit
+        in_range = [
+            lvl for lvl in self._levels(side)
+            if side.rate_in_limit(lvl["rate"], cfg.max_rate)
+        ]
+        best = in_range[0]["rate"] if in_range else None
 
         if state.rate is not None and best is not None:
             if abs(best - state.rate) < TICK:
                 # We're at top of book — regress to beat second best
-                second = self._second_best(side)
+                second = in_range[1]["rate"] if len(in_range) >= 2 else None
                 if second is not None:
                     target = round(second + side.tick_sign * TICK, 2)
                 else:
@@ -302,6 +309,9 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             best = self._best_price(side)
 
             if best is not None and side.is_overtaken(best, state.rate):
+                if abs(ideal - state.rate) < TICK:
+                    # Already at limit — no point cancel/reposting at same rate
+                    return False
                 self._cancel_and_repost(
                     side,
                     ideal,
