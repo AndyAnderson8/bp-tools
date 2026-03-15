@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from bp_tools.core.config_utils import parse_config
 from bp_tools.core.contracts import BotConfigBase
 
 
@@ -82,8 +83,6 @@ class CurrencyExchangeConfig(BotConfigBase):
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "CurrencyExchangeConfig":
-        from bp_tools.core.config_utils import parse_config
-
         normalized = dict(raw)
         if "username" in normalized and "usernames" not in normalized:
             normalized["usernames"] = [normalized.pop("username")]

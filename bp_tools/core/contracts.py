@@ -2,6 +2,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
 
+from bp_tools.core.config_utils import parse_config
+from bp_tools.core.constants import ENTITLEMENTS_DISABLED
+from bp_tools.core.entitlements import resolve_user_role
+from bp_tools.core.utils import log_print, parse_semver, set_status
+
 if TYPE_CHECKING:
     from bp_tools.core.runner import RunnerContext
 
@@ -27,8 +32,6 @@ class BotConfigBase:
         to snake_case dataclass fields.  Override in subclasses
         that need custom parsing or cross-field validation.
         """
-        from bp_tools.core.config_utils import parse_config
-
         normalized = dict(raw)
         if "username" in normalized and "usernames" not in normalized:
             normalized["usernames"] = [normalized.pop("username")]
@@ -100,21 +103,15 @@ class BotBase(ABC, Generic[C]):
         if overwrite:
             self._set_status(prefixed)
             return
-        from bp_tools.core.utils import log_print
-
         log_print(prefixed)
 
     def _set_status(self, text: str) -> None:
         """Update this bot's live status line in the dashboard."""
-        from bp_tools.core.utils import set_status
-
         set_status(self.name, text)
 
     @staticmethod
     def _parse_semver(version: str) -> tuple[int, int, int]:
         """Parse 'major.minor.patch' into a 3-tuple. Delegates to utils."""
-        from bp_tools.core.utils import parse_semver
-
         return parse_semver(version)
 
     def _check_version(self) -> None:
@@ -149,8 +146,6 @@ class BotBase(ABC, Generic[C]):
 
     def _resolve_roles(self) -> None:
         """Resolve each user's role_num from the pre-resolved context roles."""
-        from bp_tools.core.constants import ENTITLEMENTS_DISABLED
-
         if ENTITLEMENTS_DISABLED:
             return
 
@@ -164,8 +159,6 @@ class BotBase(ABC, Generic[C]):
         entitlements = getattr(self._ctx, "entitlements", None)
         if entitlements is None or entitlements.group_id == 0:
             return
-
-        from bp_tools.core.entitlements import resolve_user_role
 
         for username, client in self._ctx.clients.items():
             role_num = resolve_user_role(client, entitlements.group_id)

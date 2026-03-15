@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 from bp_tools.core.config import load_config
-from bp_tools.core.runner import start as start_runner
+from bp_tools.core.runner import discover_tools, start as start_runner
 from bp_tools.core.utils import log_print as print
 
 
@@ -67,8 +67,6 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             print(f"Failed to load config: {exc}", warning=True)
             return 2
-
-        from bp_tools.core.runner import discover_tools
 
         registry = discover_tools()
         enabled = [t for t in cfg.tools.values() if t.enabled]

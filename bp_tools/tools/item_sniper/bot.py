@@ -1,3 +1,4 @@
+import sys
 import time
 
 from bp_tools.core.contracts import BotBase
@@ -313,8 +314,6 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
     def execute(self) -> None:
         if not self._items_to_buy:
             return
-
-        import sys
 
         sys.stdout.write("\a")
         sys.stdout.flush()  # terminal bell

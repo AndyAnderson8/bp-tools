@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from bp_tools.core.config_utils import parse_config
 from bp_tools.core.contracts import BotConfigBase
 
 
@@ -52,8 +53,6 @@ class SnaggerConfig(BotConfigBase):
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "SnaggerConfig":
-        from bp_tools.core.config_utils import parse_config
-
         # Parse overrides list[{item-id, max-credits}] → dict[int, int]
         overrides: dict[int, int] = {}
         for entry in raw.get("overrides") or []:

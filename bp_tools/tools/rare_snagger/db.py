@@ -1,6 +1,8 @@
 """SQLite cache for rare item IDs."""
 
+import json
 import sqlite3
+import time
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
@@ -103,8 +105,6 @@ def load_rare_raps(config_dir: Path | None = None) -> dict[int, int]:
 
 def import_rap_from_json(json_path: Path, config_dir: Path | None = None) -> int:
     """TEMPORARY FALLBACK — import RAP values from a local JSON export."""
-    import json
-
     with open(json_path, "r") as f:
         raw = json.load(f)
 
@@ -174,15 +174,9 @@ def init_rare_cache(
     :param log: Optional callback ``(msg, overwrite)`` for progress.
     :returns: Total number of rare items in cache after scan.
     """
-    import time
-
-    from bp_tools.core.utils import log_print as print
-
-    def _out(msg: str, overwrite: bool = False) -> None:
+    def _status(msg: str, overwrite: bool = False) -> None:
         if log is not None:
             log(msg, overwrite)
-        else:
-            print(msg)
 
     page = 1
     batch: list[tuple[int, str]] = []
@@ -197,7 +191,7 @@ def init_rare_cache(
                 page=page,
             )
         except Exception as exc:
-            _out(f"Error on page {page} — {exc}")
+            _status(f"Error on page {page} — {exc}")
             break
 
         data = payload.get("data", [])
@@ -207,14 +201,12 @@ def init_rare_cache(
         page_new, seen_existing = _process_page(data, existing_ids, batch)
 
         if page_new == 0 and seen_existing > 0:
-            _out(f"Page {page}: all items already cached — stopping.")
             break
 
-        _out(f"Building rare item cache... (page {page})", True)
+        _status(f"Building rare item cache... (page {page})", True)
         page += 1
         time.sleep(0.5)
 
     inserted = add_items(batch, config_dir)
     total = count_items(config_dir)
-    _out(f"DB init complete — inserted {inserted} new items," f" {total} total cached.")
     return total

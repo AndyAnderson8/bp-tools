@@ -1,3 +1,4 @@
+import sys
 import time
 
 from bp_tools.core.contracts import BotBase
@@ -243,8 +244,6 @@ class SnaggerBot(BotBase[SnaggerConfig]):
 
         buy = self._pending_buy
         self._pending_buy = None
-
-        import sys
 
         sys.stdout.write("\a")
         sys.stdout.flush()  # terminal bell

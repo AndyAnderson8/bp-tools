@@ -7,10 +7,11 @@ from typing import Any, Type
 
 from bp_tools.core.api import ApiClient
 from bp_tools.core.config import AppConfig, ToolConfig, load_config
+from bp_tools.core.constants import ENTITLEMENTS_DISABLED, FRAMEWORK_VERSION, RATE_LIMITS
 from bp_tools.core.contracts import BotBase
-from bp_tools.core.entitlements import Entitlements
+from bp_tools.core.entitlements import Entitlements, fetch_entitlements, resolve_user_role
 from bp_tools.core.utils import log_print as print
-from bp_tools.core.utils import start_live, stop_live
+from bp_tools.core.utils import parse_semver, start_live, stop_live
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,10 +209,6 @@ def _print_banner(version: str) -> None:
 
 def _load_entitlements(fw_version: str) -> Entitlements:
     """Fetch entitlements and check framework version."""
-    from bp_tools.core.constants import ENTITLEMENTS_DISABLED
-    from bp_tools.core.entitlements import Entitlements, fetch_entitlements
-    from bp_tools.core.utils import parse_semver
-
     if ENTITLEMENTS_DISABLED:
         return Entitlements()
 
@@ -373,20 +370,14 @@ def _build_context(
     all_usernames = {u.username for u in cfg.users}
 
     print(f"{len(all_usernames)} tokens found," " initializing user clients...")
-    from bp_tools.core.constants import RATE_LIMITS
-
     clients = create_api_clients(
         cfg, all_usernames, rate_limits=RATE_LIMITS, dry_run=dry_run
     )
-
-    from bp_tools.core.constants import FRAMEWORK_VERSION
 
     entitlements = _load_entitlements(FRAMEWORK_VERSION)
 
     user_roles: dict[str, int] = {}
     if entitlements is not None and getattr(entitlements, "group_id", 0) != 0:
-        from bp_tools.core.entitlements import resolve_user_role
-
         for username, client in clients.items():
             user_roles[username] = resolve_user_role(client, entitlements.group_id)
 
@@ -438,8 +429,6 @@ def start(
     """
     if sleep_seconds <= 0:
         raise ValueError("sleep_seconds must be > 0")
-
-    from bp_tools.core.constants import FRAMEWORK_VERSION
 
     _print_banner(FRAMEWORK_VERSION)
 

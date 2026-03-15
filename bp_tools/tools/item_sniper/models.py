@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
+from bp_tools.core.config_utils import parse_config
 from bp_tools.core.contracts import BotConfigBase
 
 
@@ -43,8 +44,6 @@ class ItemSniperConfig(BotConfigBase):
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "ItemSniperConfig":
-        from bp_tools.core.config_utils import parse_config
-
         # Backwards compat: plain "usernames" list (no per-user caps)
         users_raw = raw.get("users")
         if users_raw is None:
