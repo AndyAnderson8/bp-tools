@@ -15,13 +15,12 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
     Rate = bits per credit.
 
     - **offer-bits** (bits→credits): posts on the BID side, buying credits.
-      Targets ``second_best_bid + TICK``, capped at ``max-rate`` ceiling.
+      Targets ``best_valid_bid + TICK``, strictly below ``max-rate`` ceiling.
     - **offer-credits** (credits→bits): posts on the ASK side, selling credits.
-      Targets ``second_best_ask - TICK``, floored at ``max-rate``.
+      Targets ``best_valid_ask - TICK``, strictly above ``max-rate`` floor.
 
-    Uses full orderbook to implement both aggressive AND regressive pricing:
-    - Aggressive: if beaten, repost to beat the new best.
-    - Regressive: if the order behind us disappears, back off to save money.
+    Uses full orderbook to implement both aggressive AND regressive pricing,
+    while ignoring ("striking out") any offers that are at or beyond the limit.
 
     On startup: cancels any existing open orders and places fresh limit orders.
     Each cycle: checks orderbook and adjusts position as needed.
@@ -125,6 +124,21 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         """Orderbook levels for the given side."""
         return self._bid_levels if side is TradeSide.BID else self._ask_levels
 
+    def _get_effective_levels(
+        self, side: TradeSide, cfg: ExchangeSideConfig
+    ) -> list[dict[str, Any]]:
+        """
+        Filter levels to 'strike out' those at or beyond our limit.
+        BID: must be strictly less than max_rate.
+        ASK: must be strictly greater than max_rate.
+        """
+        levels = self._levels(side)
+        limit = cfg.max_rate
+        if side is TradeSide.BID:
+            return [l for l in levels if l["rate"] < limit]
+        else:
+            return [l for l in levels if l["rate"] > limit]
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -197,35 +211,34 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         """
         Compute the optimal rate for the given side.
 
-        - Filters out orderbook levels beyond our max_rate before analysis.
-        - If at top of book: regress to second_best ± TICK.
+        - Filters out offers at or beyond the configured limit.
+        - If at top of filtered book: regress to second_best ± TICK.
         - If NOT at top: go aggressive to beat the best.
         - Clamped at max_rate.
         """
         state = self._sides[side]
+        limit = cfg.max_rate
+        levels = self._get_effective_levels(side, cfg)
 
-        # Only consider levels within our limit
-        in_range = [
-            lvl for lvl in self._levels(side)
-            if side.rate_in_limit(lvl["rate"], cfg.max_rate)
-        ]
-        best = in_range[0]["rate"] if in_range else None
+        best = levels[0]["rate"] if levels else None
+        second = levels[1]["rate"] if len(levels) >= 2 else None
 
         if state.rate is not None and best is not None:
             if abs(best - state.rate) < TICK:
-                # We're at top of book — regress to beat second best
-                second = in_range[1]["rate"] if len(in_range) >= 2 else None
+                # We're at top of filtered book — regress to beat second best
                 if second is not None:
                     target = round(second + side.tick_sign * TICK, 2)
                 else:
-                    target = cfg.max_rate
+                    # Alone in filtered book — stay just off the limit
+                    target = round(limit - side.tick_sign * TICK, 2)
             else:
                 # Not at top — beat the best aggressively
                 target = round(best + side.tick_sign * TICK, 2)
         elif best is not None:
             target = round(best + side.tick_sign * TICK, 2)
         else:
-            target = cfg.max_rate
+            # Filtered book is empty — start just off the limit
+            target = round(limit - side.tick_sign * TICK, 2)
 
         return side.clamp_rate(target, cfg.max_rate)
 
@@ -306,12 +319,12 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
 
         if state.order_id is not None and state.rate is not None:
             ideal = self._compute_rate(side, cfg)
-            best = self._best_price(side)
+
+            # Use filtered best to decide if we are overtaken by a VALID offer
+            levels = self._get_effective_levels(side, cfg)
+            best = levels[0]["rate"] if levels else None
 
             if best is not None and side.is_overtaken(best, state.rate):
-                if abs(ideal - state.rate) < TICK:
-                    # Already at limit — no point cancel/reposting at same rate
-                    return False
                 self._cancel_and_repost(
                     side,
                     ideal,

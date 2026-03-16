@@ -137,19 +137,26 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         prev_stock = self._stock_tracker.get(item.item_id)
         was_on_sale = self._on_sale_tracker.get(item.item_id)
 
+        should_buy = False
         if item.rare:
             if prev_stock is None:
                 if item.remaining_stock > 0 and item.on_sale:
-                    self._items_to_buy.append(item)
+                    should_buy = True
             elif prev_stock == 0 and item.remaining_stock > 0 and item.on_sale:
                 self._log(f"Restock detected — {item}")
-                self._items_to_buy.append(item)
+                should_buy = True
             elif was_on_sale is False and item.on_sale and item.remaining_stock > 0:
                 self._log(f"Went on sale — {item}")
-                self._items_to_buy.append(item)
+                should_buy = True
         else:
             if prev_stock is None and item.on_sale:
-                self._items_to_buy.append(item)
+                should_buy = True
+            elif was_on_sale is False and item.on_sale:
+                self._log(f"Newly on sale (bits item) — {item}")
+                should_buy = True
+
+        if should_buy:
+            self._items_to_buy.append(item)
 
         self._stock_tracker[item.item_id] = item.remaining_stock
         self._on_sale_tracker[item.item_id] = item.on_sale
