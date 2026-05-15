@@ -12,7 +12,7 @@ FRAMEWORK_VERSION = "1.0.0"
 BASE_URL = "https://www.brickplanet.com/api/v1"
 
 # ── Entitlements ─────────────────────────────────────────────────
-ENTITLEMENTS_URL = "https://andy.ong/bp/entitlements.json"
+ENTITLEMENTS_URL = "https://andy.uno/bp/entitlements.json"
 ENTITLEMENTS_DISABLED = False
 
 # ── API Rate Limits ──────────────────────────────────────────────

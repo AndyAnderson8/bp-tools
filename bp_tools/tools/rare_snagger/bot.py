@@ -38,6 +38,8 @@ class SnaggerBot(BotBase[SnaggerConfig]):
     ) -> None:
         super().__init__(ctx, config, poll_interval=poll_interval, **kwargs)
 
+        self._rare_raps = None
+        self._rare_names = None
         self._rare_item_ids: list[int] = []
         self._scan_index: int = 0
         self._cycle_count: int = 1
@@ -51,7 +53,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
     def initialize(self) -> None:
         config_dir = getattr(self._ctx, "config_dir", None)
 
-        # Auto-populate cache if empty
+        # Autopopulate cache if empty
         if count_items(config_dir) == 0:
             self._log("No rare items cached — scanning catalog...")
             client = self._next_get_client()
@@ -195,7 +197,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
             )
             return None
 
-        return (reseller_id, actual_price, seller_name)
+        return reseller_id, actual_price, seller_name
 
     def _attempt_purchase(
         self,

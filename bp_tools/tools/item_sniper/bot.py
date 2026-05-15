@@ -35,6 +35,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         super().__init__(ctx, config, poll_interval=poll_interval, **kwargs)
 
         # item_id → last known remaining_stock (0 means was sold out)
+        self._user_delays = None
         self._stock_tracker: dict[int, int] = {}
         # item_id → last known on_sale flag
         self._on_sale_tracker: dict[int, bool] = {}
