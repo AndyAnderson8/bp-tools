@@ -35,7 +35,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         super().__init__(ctx, config, poll_interval=poll_interval, **kwargs)
 
         # item_id → last known remaining_stock (0 means was sold out)
-        self._user_delays = None
+        self._user_delays: dict[str, float] = {}
         self._stock_tracker: dict[int, int] = {}
         # item_id → last known on_sale flag
         self._on_sale_tracker: dict[int, bool] = {}
@@ -89,7 +89,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             else 5.0
         )
 
-        self._user_delays: dict[str, float] = {}
+        self._user_delays = {}
         for username, role_num in self.user_roles.items():
             if premium_role > 0 and role_num < premium_role:
                 self._user_delays[username] = delay_s
@@ -104,7 +104,9 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         for rare_flag, label in [(True, "rares"), (None, "all items")]:
             try:
                 payload = client.browse_items(
-                    sort="newest", per_page=50, rare=rare_flag,
+                    sort="newest",
+                    per_page=50,
+                    rare=rare_flag,
                 )
             except Exception as exc:
                 self._log(f"Error — seeding {label}: {exc}")
@@ -306,39 +308,63 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             time.sleep(delay)
 
         self._log(f"[{username}] Buying with {currency} ({price:,})")
+        self._execute_buy(username, item, client, currency)
 
+    def _execute_buy(
+        self,
+        username: str,
+        item: ShopItem,
+        client: object,
+        currency: str,
+    ) -> None:
+        """Execute the purchase via web session or API fallback."""
         # Prefer web session (form POST) — the API buy endpoint is disabled for new rares
         web_session = self._ctx.web_sessions.get(username)
         if web_session is not None:
-            try:
-                result = web_session.buy_item(
-                    item_id=item.item_id,
-                    currency=currency,
-                )
-                if result.get("success"):
-                    self._log(
-                        f"[{username}] Purchased! {result.get('message', 'Success')}"
-                    )
-                else:
-                    self._log(
-                        f"[{username}] Buy response — {result.get('message', '?')}"
-                    )
-                self._refresh_user_wallet(username)
-            except Exception as exc:
-                self._log(f"[{username}] Web buy failed — {exc}")
+            self._buy_via_web(username, item, web_session, currency)
         else:
-            # Fallback: API endpoint (may fail for new rares)
-            try:
-                result = client.buy_item(
-                    item_id=item.item_id,
-                    currency=currency,
-                )
-                msg = result.get("data", {}).get("message", "Success")
-                backpack_id = result.get("data", {}).get("backpack_id")
-                self._log(f"[{username}] Purchased! {msg} (backpack ID: {backpack_id})")
-                self._refresh_user_wallet(username)
-            except Exception as exc:
-                self._log(f"[{username}] Buy failed — {exc}")
+            self._buy_via_api(username, item, client, currency)
+
+    def _buy_via_web(
+        self,
+        username: str,
+        item: ShopItem,
+        web_session: object,
+        currency: str,
+    ) -> None:
+        """Purchase an item using the web form POST."""
+        try:
+            result = web_session.buy_item(  # type: ignore[attr-defined]
+                item_id=item.item_id,
+                currency=currency,
+            )
+            if result.get("success"):
+                self._log(f"[{username}] Purchased! {result.get('message', 'Success')}")
+            else:
+                self._log(f"[{username}] Buy response — {result.get('message', '?')}")
+            self._refresh_user_wallet(username)
+        except Exception as exc:
+            self._log(f"[{username}] Web buy failed — {exc}")
+
+    def _buy_via_api(
+        self,
+        username: str,
+        item: ShopItem,
+        client: object,
+        currency: str,
+    ) -> None:
+        """Fallback: purchase via the API endpoint (may fail for new rares)."""
+        try:
+            result = client.buy_item(  # type: ignore[attr-defined]
+                item_id=item.item_id,
+                currency=currency,
+            )
+            msg = result.get("data", {}).get("message", "Success")
+            backpack_id = result.get("data", {}).get("backpack_id")
+            self._log(f"[{username}] Purchased! {msg} (backpack ID: {backpack_id})")
+            self._refresh_user_wallet(username)
+        except Exception as exc:
+            self._log(f"[{username}] Buy failed — {exc}")
 
     def execute(self) -> None:
         if not self._items_to_buy:

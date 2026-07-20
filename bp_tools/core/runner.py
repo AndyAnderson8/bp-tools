@@ -7,12 +7,20 @@ from typing import Any, Type
 
 from bp_tools.core.api import ApiClient
 from bp_tools.core.config import AppConfig, ToolConfig, load_config
-from bp_tools.core.web_session import WebSession
-from bp_tools.core.constants import ENTITLEMENTS_DISABLED, FRAMEWORK_VERSION, RATE_LIMITS
+from bp_tools.core.constants import (
+    ENTITLEMENTS_DISABLED,
+    FRAMEWORK_VERSION,
+    RATE_LIMITS,
+)
 from bp_tools.core.contracts import BotBase
-from bp_tools.core.entitlements import Entitlements, fetch_entitlements, resolve_user_role
+from bp_tools.core.entitlements import (
+    Entitlements,
+    fetch_entitlements,
+    resolve_user_role,
+)
 from bp_tools.core.utils import log_print as print
 from bp_tools.core.utils import parse_semver, start_live, stop_live
+from bp_tools.core.web_session import WebSession
 
 
 @dataclass(frozen=True, slots=True)
