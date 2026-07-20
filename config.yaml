@@ -1,9 +1,11 @@
 api_tokens:
   - username: "YourUsername"
     token: "your_api_token_here"
+    # password: "your_password_here"  # Required for item_sniper web purchases
 
   - username: "AltAccount"
     token: "your_alt_api_token_here"
+    # password: "your_alt_password_here"
 
 tools:
   - uuid: 2a0b9214-7f29-41f2-b913-067ff45fc778  # item_sniper

@@ -307,17 +307,38 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         self._log(f"[{username}] Buying with {currency} ({price:,})")
 
-        try:
-            result = client.buy_item(
-                item_id=item.item_id,
-                currency=currency,
-            )
-            msg = result.get("data", {}).get("message", "Success")
-            backpack_id = result.get("data", {}).get("backpack_id")
-            self._log(f"[{username}] Purchased! {msg} (backpack ID: {backpack_id})")
-            self._refresh_user_wallet(username)
-        except Exception as exc:
-            self._log(f"[{username}] Buy failed — {exc}")
+        # Prefer web session (form POST) — the API buy endpoint is disabled for new rares
+        web_session = self._ctx.web_sessions.get(username)
+        if web_session is not None:
+            try:
+                result = web_session.buy_item(
+                    item_id=item.item_id,
+                    currency=currency,
+                )
+                if result.get("success"):
+                    self._log(
+                        f"[{username}] Purchased! {result.get('message', 'Success')}"
+                    )
+                else:
+                    self._log(
+                        f"[{username}] Buy response — {result.get('message', '?')}"
+                    )
+                self._refresh_user_wallet(username)
+            except Exception as exc:
+                self._log(f"[{username}] Web buy failed — {exc}")
+        else:
+            # Fallback: API endpoint (may fail for new rares)
+            try:
+                result = client.buy_item(
+                    item_id=item.item_id,
+                    currency=currency,
+                )
+                msg = result.get("data", {}).get("message", "Success")
+                backpack_id = result.get("data", {}).get("backpack_id")
+                self._log(f"[{username}] Purchased! {msg} (backpack ID: {backpack_id})")
+                self._refresh_user_wallet(username)
+            except Exception as exc:
+                self._log(f"[{username}] Buy failed — {exc}")
 
     def execute(self) -> None:
         if not self._items_to_buy:

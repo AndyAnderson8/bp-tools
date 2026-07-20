@@ -7,6 +7,7 @@ from typing import Any, Type
 
 from bp_tools.core.api import ApiClient
 from bp_tools.core.config import AppConfig, ToolConfig, load_config
+from bp_tools.core.web_session import WebSession
 from bp_tools.core.constants import ENTITLEMENTS_DISABLED, FRAMEWORK_VERSION, RATE_LIMITS
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.entitlements import Entitlements, fetch_entitlements, resolve_user_role
@@ -24,6 +25,7 @@ class RunnerContext:
     :param config_dir: Directory containing config.yaml (for DB path).
     :param entitlements: Parsed entitlements from remote JSON.
     :param user_roles: Pre-resolved user roles (username → role_num).
+    :param web_sessions: Browser sessions keyed by username (for web purchases).
     """
 
     config: AppConfig
@@ -31,6 +33,7 @@ class RunnerContext:
     config_dir: Path | None = None
     entitlements: Entitlements | None = None
     user_roles: dict[str, int] = field(default_factory=dict)
+    web_sessions: dict[str, WebSession] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -381,12 +384,27 @@ def _build_context(
         for username, client in clients.items():
             user_roles[username] = resolve_user_role(client, entitlements.group_id)
 
+    # Create web sessions for users that have passwords configured
+    web_sessions: dict[str, WebSession] = {}
+    for user_token in cfg.users:
+        if user_token.password:
+            try:
+                web_sessions[user_token.username] = WebSession(
+                    username=user_token.username,
+                    password=user_token.password,
+                )
+            except Exception as exc:
+                print(
+                    f"  [!] Web session login failed for {user_token.username}: {exc}"
+                )
+
     return RunnerContext(
         config=cfg,
         clients=clients,
         config_dir=config_path.parent,
         entitlements=entitlements,
         user_roles=user_roles,
+        web_sessions=web_sessions,
     )
 
 

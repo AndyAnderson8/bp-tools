@@ -9,6 +9,7 @@ import yaml
 class UserToken:
     username: str
     api_token: str
+    password: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +44,7 @@ def load_config(path: Path) -> AppConfig:
             UserToken(
                 username=entry["username"],
                 api_token=entry["token"],
+                password=entry.get("password"),
             )
         )
 
