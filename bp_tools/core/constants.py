@@ -1,19 +1,14 @@
 """
-Owner-level constants.
+Application-level constants.
 
-Values here are baked into the compiled distribution and are NOT
-user-configurable.
+Values here are baked into the compiled distribution and should not be user-configured.
 """
 
 # ── Framework ────────────────────────────────────────────────────
-FRAMEWORK_VERSION = "1.0.0"
+FRAMEWORK_VERSION = "1.1.0"
 
 # ── BrickPlanet API ──────────────────────────────────────────────
 BASE_URL = "https://www.brickplanet.com/api/v1"
-
-# ── Entitlements ─────────────────────────────────────────────────
-ENTITLEMENTS_URL = "https://andy.uno/bp/entitlements.json"
-ENTITLEMENTS_DISABLED = False
 
 # ── API Rate Limits ──────────────────────────────────────────────
 # Per the docs: tracked per authenticated user (not per IP).

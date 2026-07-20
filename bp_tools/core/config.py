@@ -24,6 +24,7 @@ class ToolConfig:
 class AppConfig:
     users: list[UserToken]
     tools: dict[str, ToolConfig]  # keyed by UUID
+    dev_mode: bool = False
 
 
 def load_config(path: Path) -> AppConfig:
@@ -76,4 +77,6 @@ def load_config(path: Path) -> AppConfig:
             config=config,
         )
 
-    return AppConfig(users=users, tools=tools)
+    dev_mode = bool(data.get("dev-mode", False))
+
+    return AppConfig(users=users, tools=tools, dev_mode=dev_mode)

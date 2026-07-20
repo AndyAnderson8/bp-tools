@@ -8,18 +8,12 @@ from typing import Any, Type
 from bp_tools.core.api import ApiClient
 from bp_tools.core.config import AppConfig, ToolConfig, load_config
 from bp_tools.core.constants import (
-    ENTITLEMENTS_DISABLED,
     FRAMEWORK_VERSION,
     RATE_LIMITS,
 )
 from bp_tools.core.contracts import BotBase
-from bp_tools.core.entitlements import (
-    Entitlements,
-    fetch_entitlements,
-    resolve_user_role,
-)
 from bp_tools.core.utils import log_print as print
-from bp_tools.core.utils import parse_semver, start_live, stop_live
+from bp_tools.core.utils import start_live, stop_live
 from bp_tools.core.web_session import WebSession
 
 
@@ -31,17 +25,17 @@ class RunnerContext:
     :param config: Loaded app config.
     :param clients: API clients keyed by username.
     :param config_dir: Directory containing config.yaml (for DB path).
-    :param entitlements: Parsed entitlements from remote JSON.
-    :param user_roles: Pre-resolved user roles (username → role_num).
     :param web_sessions: Browser sessions keyed by username (for web purchases).
     """
 
     config: AppConfig
     clients: dict[str, ApiClient]
     config_dir: Path | None = None
-    entitlements: Entitlements | None = None
-    user_roles: dict[str, int] = field(default_factory=dict)
     web_sessions: dict[str, WebSession] = field(default_factory=dict)
+
+    @property
+    def dev_mode(self) -> bool:
+        return self.config.dev_mode
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,33 +212,6 @@ def _print_banner(version: str) -> None:
     print(f"by Revolt — Discord: Revolt8500 | v{version}\n")
 
 
-def _load_entitlements(fw_version: str) -> Entitlements:
-    """Fetch entitlements and check framework version."""
-    if ENTITLEMENTS_DISABLED:
-        return Entitlements()
-
-    entitlements = fetch_entitlements()
-
-    if entitlements.framework_version is not None:
-        local = parse_semver(fw_version)
-        remote = parse_semver(entitlements.framework_version)
-        if remote[0] > local[0]:
-            raise RuntimeError(
-                f"bp-tools v{fw_version} is outdated. "
-                f"Version {entitlements.framework_version} is required. "
-                f"Please update."
-            )
-        if remote[1] > local[1]:
-            print(
-                f"[!] bp-tools v{fw_version}: "
-                f"version {entitlements.framework_version} is available. "
-                f"Consider updating.",
-                warning=True,
-            )
-
-    return entitlements
-
-
 def _instantiate_bots(
     enabled: list[ToolConfig],
     registry: dict[str, LoadedTool],
@@ -377,20 +344,13 @@ def _build_context(
     dry_run: bool,
     bot_usernames: set[str],
 ) -> RunnerContext:
-    """Create API clients, load entitlements, build RunnerContext."""
+    """Create API clients, build RunnerContext."""
     all_usernames = {u.username for u in cfg.users}
 
     print(f"{len(all_usernames)} tokens found," " initializing user clients...")
     clients = create_api_clients(
         cfg, all_usernames, rate_limits=RATE_LIMITS, dry_run=dry_run
     )
-
-    entitlements = _load_entitlements(FRAMEWORK_VERSION)
-
-    user_roles: dict[str, int] = {}
-    if entitlements is not None and getattr(entitlements, "group_id", 0) != 0:
-        for username, client in clients.items():
-            user_roles[username] = resolve_user_role(client, entitlements.group_id)
 
     # Create web sessions for users that have passwords configured
     web_sessions: dict[str, WebSession] = {}
@@ -410,8 +370,6 @@ def _build_context(
         config=cfg,
         clients=clients,
         config_dir=config_path.parent,
-        entitlements=entitlements,
-        user_roles=user_roles,
         web_sessions=web_sessions,
     )
 

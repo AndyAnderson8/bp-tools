@@ -1,6 +1,7 @@
 import sys
 import time
 
+from bp_tools.core.constants import DEFAULT_SNIPER_DELAY
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
 
@@ -49,6 +50,10 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
 
     def initialize(self) -> None:
+        delay = 0.0 if self._ctx.dev_mode else DEFAULT_SNIPER_DELAY
+        for user_cfg in self.config.users:
+            self._user_delays[user_cfg.username] = delay
+
         # Fetch initial wallets for all configured users
         for user_cfg in self.config.users:
             self._refresh_user_wallet(user_cfg.username)
@@ -56,45 +61,6 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         # Seed the stock tracker so existing items aren't treated as "new"
         self._seed_tracker()
-
-    def authorize(self) -> None:
-        """
-        Custom auth for item_sniper based on role num.
-        """
-        # Run default entitlement check first (checks min_role_num from JSON)
-        super().authorize()
-
-        entitlements = getattr(self._ctx, "entitlements", None)
-
-        # Read thresholds from entitlements (fall back to safe defaults)
-        min_role = 0
-        premium_role = 0
-        if entitlements is not None and self.tool_uuid:
-            min_role = entitlements.min_role_for(self.tool_uuid) or 0
-            premium_role = entitlements.premium_role_for(self.tool_uuid) or 0
-
-        # Block users below minimum role
-        if min_role > 0:
-            qualified = {u: r for u, r in self.user_roles.items() if r >= min_role}
-            if not qualified and self.user_roles:
-                raise PermissionError(
-                    f"Bot '{self.name}' requires role_num >= {min_role}. "
-                    f"User roles: {self.user_roles}"
-                )
-
-        # Per-user effects based on role
-        delay_s = (
-            entitlements.sniper_delay_for(self.tool_uuid)
-            if entitlements is not None and self.tool_uuid
-            else 5.0
-        )
-
-        self._user_delays = {}
-        for username, role_num in self.user_roles.items():
-            if premium_role > 0 and role_num < premium_role:
-                self._user_delays[username] = delay_s
-            else:
-                self._user_delays[username] = 0.0
 
     def _seed_tracker(self) -> None:
         """Poll rares and all items once to seed trackers without buying."""

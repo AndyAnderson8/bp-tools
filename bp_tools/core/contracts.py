@@ -3,9 +3,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
 
 from bp_tools.core.config_utils import parse_config
-from bp_tools.core.constants import ENTITLEMENTS_DISABLED
-from bp_tools.core.entitlements import resolve_user_role
-from bp_tools.core.utils import log_print, parse_semver, set_status
+from bp_tools.core.utils import log_print, set_status
 
 if TYPE_CHECKING:
     from bp_tools.core.runner import RunnerContext
@@ -47,13 +45,6 @@ class BotBase(ABC, Generic[C]):
     Minimal bot contract.
 
     A bot updates its view of the world, then optionally executes actions.
-
-    Auth:
-    - On init, resolves each user's ``role_num`` in the entitlements group.
-    - Stores ``user_roles: dict[str, int]`` (username → role_num, 0 = not a member).
-    - Calls ``authorize()`` which subclasses can override for custom auth logic.
-    - Default ``authorize()`` checks ``min_role_num`` from entitlements JSON
-      and raises if no user meets the requirement.
     """
 
     name: str
@@ -87,12 +78,6 @@ class BotBase(ABC, Generic[C]):
         self._poll_interval: float = poll_interval
         self._get_client_index: int = 0
 
-        # Resolve user roles from entitlements
-        self.user_roles: dict[str, int] = {}
-        self._resolve_roles()
-        self._check_version()
-        self.authorize()
-
     def _log(self, msg: str, overwrite: bool = False) -> None:
         """Print a scrolling log message with bot name prefix.
 
@@ -108,92 +93,6 @@ class BotBase(ABC, Generic[C]):
     def _set_status(self, text: str) -> None:
         """Update this bot's live status line in the dashboard."""
         set_status(self.name, text)
-
-    @staticmethod
-    def _parse_semver(version: str) -> tuple[int, int, int]:
-        """Parse 'major.minor.patch' into a 3-tuple. Delegates to utils."""
-        return parse_semver(version)
-
-    def _check_version(self) -> None:
-        """
-        Compare local version against the entitlements JSON.
-        - Major bump → block (raise)
-        - Minor bump → warn (print)
-        - Fails open if no version info available.
-        """
-        entitlements = getattr(self._ctx, "entitlements", None)
-        if entitlements is None or not self.tool_uuid:
-            return
-
-        remote_ver = entitlements.version_for(self.tool_uuid)
-        if remote_ver is None:
-            return
-
-        local = self._parse_semver(self.tool_version)
-        remote = self._parse_semver(remote_ver)
-
-        if remote[0] > local[0]:
-            raise RuntimeError(
-                f"Bot '{self.name}' v{self.tool_version} is outdated. "
-                f"Version {remote_ver} is required. Please update."
-            )
-
-        if remote[1] > local[1]:
-            print(
-                f"  [!] Bot '{self.name}' v{self.tool_version}: "
-                f"version {remote_ver} is available. Consider updating."
-            )
-
-    def _resolve_roles(self) -> None:
-        """Resolve each user's role_num from the pre-resolved context roles."""
-        if ENTITLEMENTS_DISABLED:
-            return
-
-        # Use pre-resolved roles from RunnerContext (resolved once, not per-bot)
-        ctx_roles: dict[str, int] = getattr(self._ctx, "user_roles", {})
-        if ctx_roles:
-            self.user_roles = dict(ctx_roles)
-            return
-
-        # Fallback: resolve per-bot if context didn't pre-resolve
-        entitlements = getattr(self._ctx, "entitlements", None)
-        if entitlements is None or entitlements.group_id == 0:
-            return
-
-        for username, client in self._ctx.clients.items():
-            role_num = resolve_user_role(client, entitlements.group_id)
-            self.user_roles[username] = role_num
-
-    def authorize(self) -> None:
-        """
-        Called during init after roles are resolved.
-
-        Default: checks if the entitlements JSON specifies a ``min_role_num``
-        for this bot's UUID. If it does, requires at least one user to meet it.
-        Raises ``PermissionError`` if no user qualifies.
-
-        Override in subclasses for custom auth logic (e.g., per-feature gating).
-        If the UUID is not in the entitlements, this is a no-op.
-        """
-        entitlements = getattr(self._ctx, "entitlements", None)
-        if entitlements is None or not self.tool_uuid:
-            return
-
-        min_role = entitlements.min_role_for(self.tool_uuid)
-        if min_role is None:
-            # Not restricted
-            return
-
-        # Check if any user meets the requirement
-        for username, role_num in self.user_roles.items():
-            if role_num >= min_role:
-                return
-
-        raise PermissionError(
-            f"Bot '{self.name}' requires role_num >= {min_role} in group "
-            f"{entitlements.group_id}, but no user qualifies. "
-            f"User roles: {self.user_roles}"
-        )
 
     # ------------------------------------------------------------------
     # Shared client helpers
