@@ -206,11 +206,12 @@ class SnaggerBot(BotBase[SnaggerConfig]):
             )
             msg = result.get("data", {}).get("message", "")
             backpack_id = result.get("data", {}).get("backpack_id")
-            suffix = (
-                f"(backpack_id: {backpack_id})"
-                if backpack_id
-                else "(DRY RUN)" if not msg else msg
-            )
+            if backpack_id:
+                suffix = f"(backpack_id: {backpack_id})"
+            elif msg:
+                suffix = f"({msg})"
+            else:
+                suffix = ""
             self._log(
                 f"Snagged {buy.item_name} for {actual_price:,} credits"
                 f" from {seller_name}! {suffix}"
