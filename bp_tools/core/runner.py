@@ -12,7 +12,7 @@ from bp_tools.core.constants import (
     FRAMEWORK_VERSION,
     RATE_LIMITS,
 )
-from bp_tools.core.contracts import BotBase
+from bp_tools.core.contracts import BotBase, normalize_usernames
 from bp_tools.core.utils import log_print as print
 from bp_tools.core.utils import start_live, stop_live
 from bp_tools.core.wallet import WalletRegistry
@@ -122,34 +122,20 @@ def _collect_usernames(tools: list[ToolConfig]) -> set[str]:
     """
     Collect usernames referenced by enabled tools.
 
-    Supports:
-    - ``config.username`` (str) — normalized to usernames list
-    - ``config.usernames`` (list of str)
-    - ``config.users`` (list of dicts with "username" key)
+    A tool names its accounts with ``username`` (one), ``usernames``
+    (several), or ``users`` (sniper-style entries, each a mapping with
+    ``username`` or a plain string).
 
     :param tools: Enabled tool configs.
     :returns: Set of usernames.
     """
     usernames: set[str] = set()
     for t in tools:
-        # Plural form: list of usernames (covers normalized "username" too)
-        raw = t.config.get("usernames", [])
-        if isinstance(raw, list) and all(isinstance(x, str) for x in raw):
-            usernames.update(raw)
-
-        # Singular form: single username string
-        single = t.config.get("username")
-        if isinstance(single, str):
-            usernames.add(single)
-
-        # Nested users list (e.g. sniper: [{username: "Revolt"}, ...])
-        users = t.config.get("users", [])
-        if isinstance(users, list):
-            for u in users:
-                if isinstance(u, dict):
-                    name = u.get("username")
-                    if isinstance(name, str):
-                        usernames.add(name)
+        usernames.update(normalize_usernames(t.config).get("usernames") or [])
+        for entry in t.config.get("users") or []:
+            name = entry.get("username") if isinstance(entry, dict) else entry
+            if isinstance(name, str):
+                usernames.add(name)
     return usernames
 
 
@@ -186,15 +172,15 @@ def create_api_clients(
         user_token = tokens_by_name[username]
         print(f"Creating API client: {username}")
         client = ApiClient(
-            token=user_token.api_token,
+            token=user_token.token,
             rate_limits=rate_limits,
             dry_run=dry_run,
         )
-        existing = token_to_limiters.get(user_token.api_token)
+        existing = token_to_limiters.get(user_token.token)
         if existing is not None:
             client._limiters = existing
         else:
-            token_to_limiters[user_token.api_token] = client._limiters
+            token_to_limiters[user_token.token] = client._limiters
         clients[username] = client
 
     return clients
@@ -229,17 +215,18 @@ def _instantiate_bots(
             raise ValueError(f"Tool enabled in config but not found: {t.uuid}")
         try:
             config = tool.bot_cls.CONFIG_CLASS.from_dict(t.config)
+            extra: dict[str, Any] = {}
+            if t.poll_interval is not None:
+                extra["poll_interval"] = t.poll_interval
             bot = tool.bot_cls(
                 ctx=ctx,
                 config=config,
                 tool_uuid=tool.tool_uuid,
                 tool_version=tool.tool_version,
-                poll_interval=t.poll_interval,
+                **extra,
             )  # type: ignore[call-arg]
             bots.append(bot)
-        except PermissionError as exc:
-            print(f"  Skipping {tool.tool_name}: {exc}")
-        except RuntimeError as exc:
+        except (PermissionError, RuntimeError, TypeError, ValueError) as exc:
             print(f"  Skipping {tool.tool_name}: {exc}")
     return bots
 
@@ -391,9 +378,13 @@ def _print_tool_summary(
     print(f"Running {len(enabled)} tool(s):")
     for t in enabled:
         tool = registry.get(t.uuid)
-        interval = t.poll_interval
-        label = f"every {interval}s" if interval > 0 else "once"
         name = tool.tool_name if tool else t.uuid
+        if t.poll_interval is None:
+            label = "bot default interval"
+        elif t.poll_interval > 0:
+            label = f"every {t.poll_interval:g}s"
+        else:
+            label = "every loop"
         print(f"  - {name} ({label})")
 
     if dry_run:

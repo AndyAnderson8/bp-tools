@@ -44,20 +44,40 @@ Copy the example config and fill in your tokens:
 ```yaml
 # config.yaml
 api_tokens:
-  - username: "YourUsername"
+  - username: "YourUsername"        # used by tools that reference this name
     token: "your_api_token_here"
+    password: "..."                 # optional: needed for item_sniper web purchases
+    two-factor-code: "123456"       # optional: one-time email code if the account has 2FA
 
 tools:
-  - name: item_sniper
+  - uuid: 2a0b9214-7f29-41f2-b913-067ff45fc778   # item_sniper (see table below)
     enabled: true
+    poll-interval: 2                # seconds; omit to use the bot's default
     config:
       users:
         - username: "YourUsername"
           rares-only: true          # only buy rare/limited items
-          # max-credits: 10000      # optional per-user spending cap
+          # max-credits: 10000      # optional per-item spending cap
           # max-bits: 50000
-      credit-to-bits-ratio: 50     # used to pick cheapest currency
+      credit-to-bits-ratio: 50      # used to pick the cheapest currency
+
+dev-mode: false                     # true = skip the sniper's role-restriction wait
 ```
+
+**Rules**
+
+- Every tool entry needs a `uuid`. The table below lists them.
+- A tool names its accounts with `username: X` (one account), `usernames: [X, Y]`,
+  or, for item_sniper, `users:` with per-account settings.
+- `poll-interval` is optional; when it's omitted the bot's built-in interval is used.
+- A tool with an invalid config is skipped with a message. The other tools still start.
+
+| Tool | UUID |
+|------|------|
+| item_sniper | `2a0b9214-7f29-41f2-b913-067ff45fc778` |
+| trade_currency | `121ce010-69e4-41c0-84af-0aac360b32df` |
+| rare_snagger | `8e61f94d-9ac5-4ca9-b1d9-ef60f0aa6a05` |
+| rare_offerer | `a3c2e7f1-5b8d-4f9a-b6e2-d9f1a4c8e3b7` |
 
 ### Running
 

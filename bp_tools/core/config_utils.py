@@ -142,5 +142,7 @@ def _coerce_primitive(ftype: type, value: Any, label: str) -> Any:
             raise TypeError(f"{label} must be a string, got {type(value).__name__}")
         return value
     if ftype is bool:
-        return bool(value)
+        if not isinstance(value, bool):
+            raise TypeError(f"{label} must be true or false, got {value!r}")
+        return value
     return value
