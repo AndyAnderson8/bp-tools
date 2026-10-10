@@ -99,7 +99,6 @@ class WebSession:
             )
 
         self._created_at = time.time()
-        print(f"[WebSession] Logged in successfully as {self.username}")
 
     def ensure_fresh_session(self) -> None:
         """

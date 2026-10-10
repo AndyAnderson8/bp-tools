@@ -68,19 +68,22 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._seed_tracker()
 
     def _login_web_sessions(self) -> None:
-        """Log in a web session for each configured user that has a password."""
+        """Log in a web session for each configured user and report the result."""
         passwords = {u.username: u.password for u in self._ctx.config.users}
         for user_cfg in self.config.users:
-            password = passwords.get(user_cfg.username)
+            username = user_cfg.username
+            password = passwords.get(username)
             if not password:
+                self._log(f"[{username}] LOGIN SKIPPED — no password in config")
                 continue
             try:
-                self._web_sessions[user_cfg.username] = WebSession(
-                    username=user_cfg.username,
+                self._web_sessions[username] = WebSession(
+                    username=username,
                     password=password,
                 )
+                self._log(f"[{username}] LOGIN OK")
             except Exception as exc:
-                self._log(f"[{user_cfg.username}] Web login failed — {exc}")
+                self._log(f"[{username}] LOGIN FAILED — {exc}")
 
     def _seed_tracker(self) -> None:
         """Poll rares and all items once to seed trackers without buying."""
