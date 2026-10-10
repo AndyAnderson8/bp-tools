@@ -61,8 +61,15 @@ def test_balances_do_not_call_api() -> None:
     client.get_me.assert_not_called()
 
 
-def test_missing_wallets_default_to_zero() -> None:
+def test_missing_wallets_is_empty_not_currency_specific() -> None:
     client = mock.Mock()
     client.get_me.return_value = {"data": {}}
 
-    assert WalletCache(client).refresh() == {"credits": 0, "bits": 0}
+    assert WalletCache(client).refresh() == {}
+
+
+def test_any_currency_key_is_passed_through() -> None:
+    client = mock.Mock()
+    client.get_me.return_value = {"data": {"wallets": {"gems": 4}}}
+
+    assert WalletCache(client).refresh() == {"gems": 4}

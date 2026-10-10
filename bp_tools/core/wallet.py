@@ -39,7 +39,7 @@ class WalletCache:
         """
         me = self._client.get_me()
         balances: dict[str, Any] = me.get("data", {}).get(
-            "wallets", {"credits": 0, "bits": 0}
+            "wallets", {}
         )
         self._balances = {k: int(v) for k, v in balances.items()}
         self._refreshed_at = time.time()
