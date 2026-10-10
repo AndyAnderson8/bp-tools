@@ -1,4 +1,5 @@
 import sys
+from typing import Callable
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
@@ -18,6 +19,7 @@ _console = Console(highlight=False)
 _status_lines: dict[str, str] = {}
 _panel: RenderableType | None = None
 _live: Live | None = None
+_log_sink: Callable[[str, bool], None] | None = None
 
 
 def parse_semver(version: str) -> tuple[int, int, int]:
@@ -112,6 +114,16 @@ def set_panel(renderable: RenderableType | None) -> None:
         _live.update(_build_status_display())
 
 
+def set_log_sink(sink: Callable[[str, bool], None] | None) -> None:
+    """
+    Route log messages to *sink* instead of the console (None restores it).
+
+    Used by alternate front-ends (e.g. the TUI) to capture log lines.
+    """
+    global _log_sink
+    _log_sink = sink
+
+
 def log_print(
     text: str = "",
     warning: bool = False,
@@ -120,11 +132,13 @@ def log_print(
     """
     Print a scrolling log message with gradient colouring.
 
-    When the Live status display is active, prints above the status
-    block so it isn't overwritten.  Otherwise falls through to raw
-    ANSI gradient output.
+    When a log sink is set, the message goes there instead. When the Live
+    status display is active, prints above the status block so it isn't
+    overwritten.  Otherwise falls through to raw ANSI gradient output.
     """
-    if _live is not None:
+    if _log_sink is not None:
+        _log_sink(text, warning)
+    elif _live is not None:
         _live.console.print(_gradient_text(text, warning=warning))
     else:
         _gradient_print_raw(text, warning=warning)
