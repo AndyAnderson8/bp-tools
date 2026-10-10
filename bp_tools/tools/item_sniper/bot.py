@@ -1,7 +1,6 @@
 import sys
 import time
 
-from bp_tools.core.constants import DEFAULT_SNIPER_DELAY
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
 
@@ -50,7 +49,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
 
     def initialize(self) -> None:
-        delay = 0.0 if self._ctx.dev_mode else DEFAULT_SNIPER_DELAY
+        delay = 0.0 if self._ctx.dev_mode else 5.0
         for user_cfg in self.config.users:
             self._user_delays[user_cfg.username] = delay
 
