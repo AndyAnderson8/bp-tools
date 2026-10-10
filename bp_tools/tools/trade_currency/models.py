@@ -46,6 +46,9 @@ class SideState:
     order_id: int | None = None
     rate: float | None = None
     amount: int | None = None
+    # Set when an order was accepted but no id came back: it may be live,
+    # so this side is not re-posted until the next startup cleans up.
+    held: bool = False
 
 
 @dataclass(frozen=True, slots=True)
