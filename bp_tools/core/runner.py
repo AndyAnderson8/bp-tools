@@ -365,7 +365,6 @@ def _build_context(
     cfg: AppConfig,
     config_path: Path,
     dry_run: bool,
-    bot_usernames: set[str],
 ) -> RunnerContext:
     """Create API clients, build RunnerContext."""
     all_usernames = {u.username for u in cfg.users}
@@ -435,7 +434,7 @@ def build_bots(
         print("No usernames configured for enabled tools.")
         return []
 
-    ctx = _build_context(cfg, config_path, dry_run, bot_usernames)
+    ctx = _build_context(cfg, config_path, dry_run)
     _print_tool_summary(enabled, registry, dry_run)
     return _instantiate_bots(enabled, registry, ctx)
 

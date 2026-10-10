@@ -8,7 +8,7 @@ API ``POST /items/{id}/buy``.
 
 import re
 import time
-from typing import Any, Optional
+from typing import Any
 
 from requests import Response, Session
 
@@ -285,13 +285,3 @@ class WebSession:
             "success": False,
             "message": f"Purchase may have failed: {error_msg}",
         }
-
-    def refresh_session(self, password: Optional[str] = None) -> None:
-        """
-        Re-login to refresh an expired session.
-
-        :param password: Optional password if updating.
-        """
-        if password is not None:
-            self._password = password
-        self._login()

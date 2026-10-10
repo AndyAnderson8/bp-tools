@@ -165,6 +165,6 @@ def init_rare_cache(
         page += 1
         time.sleep(0.5)
 
-    inserted = add_items(batch, config_dir)
+    add_items(batch, config_dir)
     total = count_items(config_dir)
     return total

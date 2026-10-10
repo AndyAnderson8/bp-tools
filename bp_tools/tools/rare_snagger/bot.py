@@ -44,7 +44,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         self._pending_buy: PendingBuy | None = None
 
     def initialize(self) -> None:
-        config_dir = getattr(self._ctx, "config_dir", None)
+        config_dir = self._ctx.config_dir
 
         # Autopopulate cache if empty
         if count_items(config_dir) == 0:
@@ -67,7 +67,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
 
     def _refresh_items(self) -> None:
         """Incremental scan for new rare items, then reload from DB."""
-        config_dir = getattr(self._ctx, "config_dir", None)
+        config_dir = self._ctx.config_dir
         client = self._next_get_client()
         init_rare_cache(client, config_dir=config_dir, log=self._log)
         self._rare_item_ids = load_rare_ids(config_dir)
