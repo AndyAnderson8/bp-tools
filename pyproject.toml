@@ -13,6 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+tui = [
+    "textual~=8.2.8",
+]
 dev = [
     "black~=26.1.0",
     "flake8-pyproject~=1.2.4",

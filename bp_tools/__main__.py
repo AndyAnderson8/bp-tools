@@ -50,6 +50,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Show the control panel: toggle bots on/off and see their status.",
     )
+    parser.add_argument(
+        "--tui",
+        action="store_true",
+        help="Run the full-screen terminal UI (needs the 'tui' extra: textual).",
+    )
     return parser.parse_args(argv)
 
 
@@ -65,6 +70,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.sleep <= 0:
         print("--sleep must be > 0", warning=True)
         return 2
+
+    if args.tui and args.ui:
+        print("Use either --tui or --ui, not both.", warning=True)
+        return 2
+
+    if args.tui:
+        try:
+            from bp_tools.tui.app import run_tui
+        except ImportError:
+            print(
+                "--tui needs the 'tui' extra: pip install -e .[tui]",
+                warning=True,
+            )
+            return 2
+        return run_tui(
+            config_path=args.config,
+            dry_run=args.dry_run,
+            only_tools=args.tools,
+        )
 
     if args.list:
         try:
