@@ -149,3 +149,20 @@ def _raw(item_id: int) -> dict[str, Any]:
         "creator": {"id": 1},
         "created_at": "",
     }
+
+
+def test_web_buy_passes_through_rate_limiter(bot, monkeypatch) -> None:
+    ScriptedWeb.result = {"success": True}
+    calls: list[int] = []
+    limiter = bot._web_limiter("Revolt")
+    monkeypatch.setattr(limiter, "acquire", lambda: calls.append(1))
+
+    bot._buy_via_web("Revolt", _item(5), bot._web_sessions["Revolt"], "credits")
+
+    assert calls == [1]
+
+
+def test_web_limiter_uses_trading_budget(bot) -> None:
+    limiter = bot._web_limiter("Revolt")
+
+    assert (limiter._limit, limiter._window) == (10, 60)

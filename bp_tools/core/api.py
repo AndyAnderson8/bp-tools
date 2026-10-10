@@ -23,7 +23,7 @@ class ApiError(RuntimeError):
         self.status_code = status_code
 
 
-class _RateLimiter:
+class RateLimiter:
     """Per-tier sliding-window rate limiter."""
 
     def __init__(self, limit: int, window: int) -> None:
@@ -81,9 +81,9 @@ class ApiClient:
         # Rate limiting
         rl = rate_limits or RATE_LIMITS
         tiers_raw = rl.get("tiers", {})
-        self._limiters: dict[str, _RateLimiter] = {}
+        self._limiters: dict[str, RateLimiter] = {}
         for tier_name, tier_cfg in tiers_raw.items():
-            self._limiters[tier_name] = _RateLimiter(
+            self._limiters[tier_name] = RateLimiter(
                 limit=int(tier_cfg.get("limit", 60)),
                 window=int(tier_cfg.get("window", 60)),
             )
