@@ -1,6 +1,9 @@
+import json
+
 """WebSession login, 2FA, 429 and backoff behaviour, with HTTP mocked out."""
 
 import time
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
@@ -164,3 +167,58 @@ def _bare_session() -> ws.WebSession:
     session._retry_at = 0.0
     session._failures = 0
     return session
+
+
+def test_trusted_device_cookie_is_saved_after_2fa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "web.json"
+
+    def fake_send(self: ws.WebSession, method: str, url: str, **_kw: Any) -> Any:
+        if url.endswith("/email-2fa/verify"):
+            self._session.cookies.set(
+                "bp_2fa_device", "dev123", domain="www.brickplanet.com"
+            )
+            return HOME
+        return LOGIN_PAGE if method == "GET" else TWOFA_PAGE
+
+    monkeypatch.setattr(ws.WebSession, "_send", fake_send)
+
+    ws.WebSession("Revolt", "pw", two_factor_code="111111", cookie_file=store)
+
+    assert json.loads(store.read_text(encoding="utf-8")) == {"bp_2fa_device": "dev123"}
+
+
+def test_saved_device_cookie_is_sent_on_next_login(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "web.json"
+    store.write_text(json.dumps({"bp_2fa_device": "abc"}), encoding="utf-8")
+    seen: list[str | None] = []
+
+    def fake_send(self: ws.WebSession, method: str, url: str, **_kw: Any) -> Any:
+        if method == "GET":
+            seen.append(self._session.cookies.get("bp_2fa_device"))
+            return LOGIN_PAGE
+        return HOME
+
+    monkeypatch.setattr(ws.WebSession, "_send", fake_send)
+
+    ws.WebSession("Revolt", "pw", cookie_file=store)
+
+    assert seen == ["abc"]
+
+
+def test_no_cookie_file_is_written_when_site_sets_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "web.json"
+    monkeypatch.setattr(
+        ws.WebSession,
+        "_send",
+        lambda self, method, url, **_kw: LOGIN_PAGE if method == "GET" else HOME,
+    )
+
+    ws.WebSession("Revolt", "pw", cookie_file=store)
+
+    assert not store.exists()
