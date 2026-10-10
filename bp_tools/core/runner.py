@@ -12,8 +12,9 @@ from bp_tools.core.constants import (
     RATE_LIMITS,
 )
 from bp_tools.core.contracts import BotBase
+from bp_tools.core.control import BotControl, start_command_reader
 from bp_tools.core.utils import log_print as print
-from bp_tools.core.utils import start_live, stop_live
+from bp_tools.core.utils import set_panel, start_live, stop_live
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,16 +303,22 @@ def _tick_bot(
         last_run[b.name] = time.monotonic()
 
 
-def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
+def _run_loop(
+    bots: list[BotBase],
+    sleep_seconds: float,
+    control: BotControl | None = None,
+) -> int:
     """Main polling loop. Returns exit code."""
     start_live()
     last_run: dict[str, float] = {b.name: 0.0 for b in bots}
 
     try:
-        while True:
+        while control is None or control.running:
             now = time.monotonic()
             for b in bots:
                 _tick_bot(b, now, last_run)
+            if control is not None:
+                set_panel(control.render())
             time.sleep(sleep_seconds)
     except KeyboardInterrupt:
         stop_live()
@@ -387,6 +394,7 @@ def start(
     sleep_seconds: float = 1.0,
     dry_run: bool = False,
     only_tools: list[str] | None = None,
+    ui: bool = False,
 ) -> int:
     """
     Start runner: load config, create clients, run bots.
@@ -396,6 +404,7 @@ def start(
     :param sleep_seconds: Delay between cycles.
     :param dry_run: If True, POST/DELETE are printed not sent.
     :param only_tools: If set, only run these tool names/UUIDs.
+    :param ui: If True, show the control panel and read commands from stdin.
     :returns: Exit code.
     """
     if sleep_seconds <= 0:
@@ -423,4 +432,8 @@ def start(
 
     bots = _instantiate_bots(enabled, registry, ctx)
     _initialize_bots(bots)
-    return _run_loop(bots, sleep_seconds)
+    control = None
+    if ui:
+        control = BotControl(bots)
+        start_command_reader(control)
+    return _run_loop(bots, sleep_seconds, control)

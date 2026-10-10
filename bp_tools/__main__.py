@@ -45,6 +45,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         metavar="NAME",
         help="Only run these tools (by name). Omit to run all enabled tools.",
     )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Show the control panel: toggle bots on/off and see their status.",
+    )
     return parser.parse_args(argv)
 
 
@@ -83,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         sleep_seconds=args.sleep,
         dry_run=args.dry_run,
         only_tools=args.tools,
+        ui=args.ui,
     )
 
 
