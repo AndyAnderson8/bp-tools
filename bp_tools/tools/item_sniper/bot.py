@@ -51,6 +51,8 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         # Per-user web sessions (form purchases), created in initialize()
         self._web_sessions: dict[str, WebSession] = {}
+        # (username, item_id) pairs already bought or owned this session
+        self._purchased: set[tuple[str, int]] = set()
 
     def initialize(self) -> None:
         delay = 0.0 if self._ctx.dev_mode else 5.0
@@ -279,14 +281,17 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             self._log(f"[{username}] Wallet — {cr_str}, {bt_str}")
 
     def _buy_for_user(self, item: ShopItem, user_cfg: UserSniperConfig) -> None:
-        """Attempt to buy an item for a single user."""
+        """Attempt to buy an item for a single user (web purchases only)."""
         if user_cfg.rares_only and not item.rare:
             return
 
         username = user_cfg.username
-        client = self._ctx.clients.get(username)
-        if client is None:
-            self._log(f"[{username}] No API client — skipping.")
+        if (username, item.item_id) in self._purchased:
+            return
+
+        web_session = self._web_sessions.get(username)
+        if web_session is None:
+            self._log(f"[{username}] No web session — skipping (web purchases only).")
             return
 
         wallet = self._get_cached_user_wallet(username)
@@ -306,63 +311,31 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             time.sleep(delay)
 
         self._log(f"[{username}] Buying with {currency} ({price:,})")
-        self._execute_buy(username, item, client, currency)
-
-    def _execute_buy(
-        self,
-        username: str,
-        item: ShopItem,
-        client: object,
-        currency: str,
-    ) -> None:
-        """Execute the purchase via web session or API fallback."""
-        # Prefer web session (form POST) — the API buy endpoint is disabled for new rares
-        web_session = self._web_sessions.get(username)
-        if web_session is not None:
-            self._buy_via_web(username, item, web_session, currency)
-        else:
-            self._buy_via_api(username, item, client, currency)
+        self._buy_via_web(username, item, web_session, currency)
 
     def _buy_via_web(
         self,
         username: str,
         item: ShopItem,
-        web_session: object,
+        web_session: WebSession,
         currency: str,
     ) -> None:
         """Purchase an item using the web form POST."""
         try:
-            result = web_session.buy_item(  # type: ignore[attr-defined]
-                item_id=item.item_id,
-                currency=currency,
-            )
-            if result.get("success"):
-                self._log(f"[{username}] Purchased! {result.get('message', 'Success')}")
-            else:
-                self._log(f"[{username}] Buy response — {result.get('message', '?')}")
-            self._refresh_user_wallet(username)
+            result = web_session.buy_item(item_id=item.item_id, currency=currency)
         except Exception as exc:
             self._log(f"[{username}] Web buy failed — {exc}")
+            return
 
-    def _buy_via_api(
-        self,
-        username: str,
-        item: ShopItem,
-        client: object,
-        currency: str,
-    ) -> None:
-        """Fallback: purchase via the API endpoint (may fail for new rares)."""
-        try:
-            result = client.buy_item(  # type: ignore[attr-defined]
-                item_id=item.item_id,
-                currency=currency,
-            )
-            msg = result.get("data", {}).get("message", "Success")
-            backpack_id = result.get("data", {}).get("backpack_id")
-            self._log(f"[{username}] Purchased! {msg} (backpack ID: {backpack_id})")
-            self._refresh_user_wallet(username)
-        except Exception as exc:
-            self._log(f"[{username}] Buy failed — {exc}")
+        if result.get("already_owned"):
+            self._log(f"[{username}] Already owned — skipping {item.name}.")
+            self._purchased.add((username, item.item_id))
+        elif result.get("success"):
+            self._log(f"[{username}] Purchased! {result.get('message', 'Success')}")
+            self._purchased.add((username, item.item_id))
+        else:
+            self._log(f"[{username}] Buy response — {result.get('message', '?')}")
+        self._refresh_user_wallet(username)
 
     def execute(self) -> None:
         if not self._items_to_buy:

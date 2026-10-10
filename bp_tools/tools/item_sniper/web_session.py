@@ -154,7 +154,13 @@ class WebSession:
 
         # Check for success indicators in the response
         text = response.text
-        if "You own this" in text or "successfully" in text.lower():
+        if "You own this" in text:
+            return {
+                "success": False,
+                "already_owned": True,
+                "message": "Already owned",
+            }
+        if "successfully" in text.lower():
             return {
                 "success": True,
                 "message": "Purchase successful (web)",
