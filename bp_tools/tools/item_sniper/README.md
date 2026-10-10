@@ -13,10 +13,10 @@ Auto-buy new and restocked items from the BrickPlanet shop.
 ## Config
 
 ```yaml
-- name: item_sniper
+- uuid: 2a0b9214-7f29-41f2-b913-067ff45fc778   # item_sniper
   enabled: true
+  poll-interval: 2               # seconds between cycles (omit for the default, 2)
   config:
-    poll-interval: 2             # seconds between cycles (default: 2)
     users:
       - username: "Revolt"
         rares-only: false        # false = buy ALL new items, true = rares only
@@ -29,7 +29,7 @@ Auto-buy new and restocked items from the BrickPlanet shop.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `poll-interval` | float | `2` | Seconds between poll cycles |
+| `poll-interval` (top level) | float | `2` | Seconds between poll cycles |
 | `users[].username` | string | *required* | BrickPlanet username (must have a token in `api_tokens`) |
 | `users[].rares-only` | bool | `true` | Only buy rare/limited items |
 | `users[].max-credits` | int | *none* | Max credits willing to spend per item |
