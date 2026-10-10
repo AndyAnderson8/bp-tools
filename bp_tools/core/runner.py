@@ -1,6 +1,7 @@
 import importlib
 import pkgutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Type
@@ -302,17 +303,31 @@ def tick_bot(
         last_run[b.name] = time.monotonic()
 
 
-def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
-    """Main polling loop. Returns exit code."""
-    start_live()
-    last_run: dict[str, float] = {b.name: 0.0 for b in bots}
+def run_bots(
+    bots: list[BotBase],
+    should_stop: Callable[[], bool],
+    sleep_seconds: float,
+) -> None:
+    """
+    Tick *bots* until `should_stop()` returns True.
 
+    :param bots: Initialized bots.
+    :param should_stop: Polled once per loop iteration.
+    :param sleep_seconds: Delay between loop iterations.
+    """
+    last_run: dict[str, float] = {b.name: 0.0 for b in bots}
+    while not should_stop():
+        now = time.monotonic()
+        for b in bots:
+            tick_bot(b, now, last_run)
+        time.sleep(sleep_seconds)
+
+
+def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
+    """Main polling loop for the CLI. Returns exit code."""
+    start_live()
     try:
-        while True:
-            now = time.monotonic()
-            for b in bots:
-                tick_bot(b, now, last_run)
-            time.sleep(sleep_seconds)
+        run_bots(bots, should_stop=lambda: False, sleep_seconds=sleep_seconds)
     except KeyboardInterrupt:
         stop_live()
         print("\nStopped (Ctrl+C).")

@@ -22,7 +22,7 @@ from textual.widgets import DataTable, Footer, Header, RichLog, Static
 
 from bp_tools.core import utils
 from bp_tools.core.contracts import BotBase
-from bp_tools.core.runner import build_bots, initialize_bots, tick_bot
+from bp_tools.core.runner import build_bots, initialize_bots, run_bots
 
 _REFRESH_SECONDS = 0.5
 _TICK_SECONDS = 0.1
@@ -130,13 +130,7 @@ class BpToolsApp(App[None]):
 
         self._bots = bots
         initialize_bots(bots)
-
-        last_run = {b.name: 0.0 for b in bots}
-        while not self._stop.is_set():
-            now = time.monotonic()
-            for b in bots:
-                tick_bot(b, now, last_run)
-            time.sleep(_TICK_SECONDS)
+        run_bots(bots, should_stop=self._stop.is_set, sleep_seconds=_TICK_SECONDS)
 
     # ------------------------------------------------------------------
     # Table refresh (main thread)
