@@ -53,7 +53,11 @@ class FakeWeb:
     buys: list[int] = []
 
     def __init__(
-        self, username: str, password: str, two_factor_code: str | None = None
+        self,
+        username: str,
+        password: str,
+        two_factor_code: str | None = None,
+        cookie_file: object = None,
     ):
         self.username = username
 
