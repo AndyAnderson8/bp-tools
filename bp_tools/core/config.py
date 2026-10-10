@@ -77,5 +77,7 @@ def load_config(path: Path) -> AppConfig:
             raise ValueError(f"tools: duplicate uuid {tool.uuid}")
         tools[tool.uuid] = tool
 
-    dev_mode = bool(data.get("dev-mode", False))
+    dev_mode = data.get("dev-mode", False)
+    if not isinstance(dev_mode, bool):
+        raise TypeError("dev-mode must be true or false")
     return AppConfig(users=users, tools=tools, dev_mode=dev_mode)
