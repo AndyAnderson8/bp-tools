@@ -24,11 +24,12 @@ class ItemSniperConfig(BotConfigBase):
 
         users:
           - username: "Revolt"
-            max-credits: 1000
+            rares-only: false        # false = buy every new item; true = rares only
+            max-credits: 1000        # optional per-item caps
             max-bits: 50000
           - username: "RevoIt"       # no caps = buy anything affordable
-        credit-to-bits-ratio: 50
-        rares-only: false            # true = only buy rare/limited items
+            rares-only: true
+        credit-to-bits-ratio: 50     # 1 credit = 50 bits, used to pick the cheaper currency
     """
 
     users: list[UserSniperConfig] = field(default_factory=list)

@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any
 
 from bp_tools.core.config_utils import parse_config
-from bp_tools.core.contracts import BotConfigBase
+from bp_tools.core.contracts import BotConfigBase, normalize_usernames
 
 
 class TradeSide(Enum):
@@ -79,11 +79,7 @@ class CurrencyExchangeConfig(BotConfigBase):
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "CurrencyExchangeConfig":
-        normalized = dict(raw)
-        if "username" in normalized and "usernames" not in normalized:
-            normalized["usernames"] = [normalized.pop("username")]
-
-        config = parse_config(cls, normalized)
+        config = parse_config(cls, normalize_usernames(raw))
 
         if config.offer_bits is None and config.offer_credits is None:
             raise ValueError(

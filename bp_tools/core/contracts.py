@@ -9,6 +9,18 @@ if TYPE_CHECKING:
     from bp_tools.core.runner import RunnerContext
 
 
+def normalize_usernames(raw: dict[str, Any]) -> dict[str, Any]:
+    """
+    Return a copy of *raw* where a singular ``username`` becomes ``usernames``.
+
+    Lets every tool accept either ``username: X`` or ``usernames: [X]``.
+    """
+    normalized = dict(raw)
+    if "username" in normalized and "usernames" not in normalized:
+        normalized["usernames"] = [normalized.pop("username")]
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class BotConfigBase:
     """
@@ -30,11 +42,7 @@ class BotConfigBase:
         to snake_case dataclass fields.  Override in subclasses
         that need custom parsing or cross-field validation.
         """
-        normalized = dict(raw)
-        if "username" in normalized and "usernames" not in normalized:
-            normalized["usernames"] = [normalized.pop("username")]
-
-        return parse_config(cls, normalized)
+        return parse_config(cls, normalize_usernames(raw))
 
 
 C = TypeVar("C", bound=BotConfigBase)

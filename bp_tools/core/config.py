@@ -1,24 +1,39 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from bp_tools.core.config_utils import parse_config
+
 
 @dataclass(frozen=True, slots=True)
 class UserToken:
+    """
+    One account from ``api_tokens``.
+
+    ``password`` and ``two-factor-code`` are only needed for web purchases.
+    """
+
     username: str
-    api_token: str
+    token: str
     password: str | None = None
     two_factor_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ToolConfig:
+    """
+    One entry from ``tools``.
+
+    ``poll_interval`` is None when ``poll-interval`` is omitted, in which
+    case the bot's own default is used.
+    """
+
     uuid: str
-    enabled: bool
-    poll_interval: float
-    config: dict[str, Any]
+    enabled: bool = True
+    poll_interval: float | None = None
+    config: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,57 +43,39 @@ class AppConfig:
     dev_mode: bool = False
 
 
+def _records(data: dict[str, Any], key: str, cls: type) -> list[Any]:
+    """Parse a top-level list of mappings into dataclass instances."""
+    raw = data.get(key, [])
+    if not isinstance(raw, list):
+        raise TypeError(f"{key} must be a list")
+    records = []
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            raise TypeError(f"{key}[{index}] must be a mapping")
+        records.append(parse_config(cls, entry, _path=f"{key}[{index}]."))
+    return records
+
+
 def load_config(path: Path) -> AppConfig:
+    """
+    Load and validate ``config.yaml``.
+
+    :raises TypeError: On malformed structure or field types.
+    """
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if data is None:
+        data = {}
     if not isinstance(data, dict):
         raise TypeError("config.yaml must be a mapping")
 
-    # ---- api tokens ----
-    tokens_raw = data.get("api_tokens", [])
-    if not isinstance(tokens_raw, list):
-        raise TypeError("api_tokens must be a list")
-
-    users: list[UserToken] = []
-    for entry in tokens_raw:
-        if not isinstance(entry, dict):
-            raise TypeError("each api_tokens entry must be a mapping")
-        users.append(
-            UserToken(
-                username=entry["username"],
-                api_token=entry["token"],
-                password=entry.get("password"),
-                two_factor_code=entry.get("two-factor-code"),
-            )
-        )
-
-    # ---- tools ----
-    tools_raw = data.get("tools", [])
-    if not isinstance(tools_raw, list):
-        raise TypeError("tools must be a list")
+    users: list[UserToken] = _records(data, "api_tokens", UserToken)
+    tools_list: list[ToolConfig] = _records(data, "tools", ToolConfig)
 
     tools: dict[str, ToolConfig] = {}
-    for t in tools_raw:
-        if not isinstance(t, dict):
-            raise TypeError("each tools entry must be a mapping")
-
-        tool_uuid = t.get("uuid")
-        if not isinstance(tool_uuid, str):
-            raise TypeError("tool uuid must be a string")
-
-        enabled = bool(t.get("enabled", True))
-        config = t.get("config", {})
-        if not isinstance(config, dict):
-            raise TypeError(f"tools[{tool_uuid}].config must be a mapping")
-
-        poll_interval = float(t.get("poll-interval", 0))
-
-        tools[tool_uuid] = ToolConfig(
-            uuid=tool_uuid,
-            enabled=enabled,
-            poll_interval=poll_interval,
-            config=config,
-        )
+    for tool in tools_list:
+        if tool.uuid in tools:
+            raise ValueError(f"tools: duplicate uuid {tool.uuid}")
+        tools[tool.uuid] = tool
 
     dev_mode = bool(data.get("dev-mode", False))
-
     return AppConfig(users=users, tools=tools, dev_mode=dev_mode)

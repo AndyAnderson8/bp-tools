@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from bp_tools.core.config_utils import parse_config
-from bp_tools.core.contracts import BotConfigBase
+from bp_tools.core.contracts import BotConfigBase, normalize_usernames
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,10 +59,6 @@ class SnaggerConfig(BotConfigBase):
             overrides[item_id] = max_credits_override
 
         # Strip overrides from raw so parse_config doesn't choke on it
-        clean = {k: v for k, v in raw.items() if k != "overrides"}
-        # Normalize singular username → usernames list
-        if "username" in clean and "usernames" not in clean:
-            clean["usernames"] = [clean.pop("username")]
-
+        clean = normalize_usernames({k: v for k, v in raw.items() if k != "overrides"})
         config = parse_config(cls, {**clean, "overrides": overrides})
         return config
