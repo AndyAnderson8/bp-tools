@@ -171,6 +171,16 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             )
             order_id = result.get("data", {}).get("id")
             state = self._sides[side]
+            if order_id is None and getattr(self._write_client, "dry_run", False) is True:
+                self._log(f"[dry run] {side.label} order not sent")
+                return None
+            if order_id is None:
+                state.held = True
+                self._log(
+                    f"WARNING: {side.label} order was accepted but no id came back; "
+                    "holding this side to avoid a duplicate. Restart to clear it."
+                )
+                return None
             state.amount = amount
             self._log(f"Posted {amount:,} {side.label} @ {rate:.2f}")
             return order_id
@@ -264,6 +274,8 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         cfg = self._config_for(side)
         assert cfg is not None
         state = self._sides[side]
+        if state.held:
+            return
         wallet = self._get_wallet()
         available = wallet.get(side.label, 0)
         if available <= 0:

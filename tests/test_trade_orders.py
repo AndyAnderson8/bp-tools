@@ -94,3 +94,34 @@ def test_startup_survives_failed_order_fetch(bot) -> None:
 
     client.cancel_order.assert_not_called()
     assert any("api down" in m for m in b._logs)
+
+def test_missing_order_id_holds_side_instead_of_reposting(bot) -> None:
+    b, client = bot
+    client.place_order.return_value = {"data": {"message": "ok"}}
+
+    order_id = b._place_order(TradeSide.BID, 30.0, 100)
+
+    assert order_id is None
+    assert b._sides[TradeSide.BID].held is True
+    assert any("no id came back" in m for m in b._logs)
+
+
+def test_held_side_is_not_retried(bot) -> None:
+    b, client = bot
+    b._sides[TradeSide.BID].held = True
+    b._bid_levels = []
+
+    b._retry(TradeSide.BID)
+
+    client.place_order.assert_not_called()
+
+
+def test_dry_run_missing_id_does_not_hold(bot) -> None:
+    b, client = bot
+    client.dry_run = True
+    client.place_order.return_value = {"data": {"message": "dry-run"}}
+
+    b._place_order(TradeSide.ASK, 75.0, 10)
+
+    assert b._sides[TradeSide.ASK].held is False
+    assert any("dry run" in m for m in b._logs)
