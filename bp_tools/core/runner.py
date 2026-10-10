@@ -249,7 +249,7 @@ def _force_init_remaining(bots: list[BotBase]) -> None:
             print(f"  [{b.name}] Init error: {exc}")
 
 
-def _initialize_bots(bots: list[BotBase]) -> None:
+def initialize_bots(bots: list[BotBase]) -> None:
     """
     Call ``initialize()`` on each bot in dependency order.
 
@@ -397,7 +397,7 @@ def build_bots(
     """
     Load config, create API clients, and instantiate enabled bots.
 
-    Bots are not initialized; call :func:`_initialize_bots` afterwards.
+    Bots are not initialized; call :func:`initialize_bots` afterwards.
     Returns an empty list if there is nothing to run.
 
     :param config_path: Path to config.yaml.
@@ -454,7 +454,7 @@ def start(
     if not bots:
         return 0
 
-    _initialize_bots(bots)
+    initialize_bots(bots)
     control = None
     if ui:
         control = BotControl(bots)
