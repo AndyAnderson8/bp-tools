@@ -10,6 +10,7 @@ class UserToken:
     username: str
     api_token: str
     password: str | None = None
+    two_factor_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,7 @@ def load_config(path: Path) -> AppConfig:
                 username=entry["username"],
                 api_token=entry["token"],
                 password=entry.get("password"),
+                two_factor_code=entry.get("two-factor-code"),
             )
         )
 

@@ -71,17 +71,18 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
     def _login_web_sessions(self) -> None:
         """Log in a web session for each configured user and report the result."""
-        passwords = {u.username: u.password for u in self._ctx.config.users}
+        tokens = {u.username: u for u in self._ctx.config.users}
         for user_cfg in self.config.users:
             username = user_cfg.username
-            password = passwords.get(username)
-            if not password:
+            token = tokens.get(username)
+            if token is None or not token.password:
                 self._log(f"[{username}] LOGIN SKIPPED — no password in config")
                 continue
             try:
                 self._web_sessions[username] = WebSession(
                     username=username,
-                    password=password,
+                    password=token.password,
+                    two_factor_code=token.two_factor_code,
                 )
                 self._log(f"[{username}] LOGIN OK")
             except Exception as exc:

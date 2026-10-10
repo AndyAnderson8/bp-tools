@@ -53,9 +53,15 @@ class WebSession:
     # Used when a 429 has no usable Retry-After header
     _DEFAULT_RETRY_AFTER_SECONDS = 60.0
 
-    def __init__(self, username: str, password: str) -> None:
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        two_factor_code: str | None = None,
+    ) -> None:
         self.username = username
         self._password = password
+        self._two_factor_code = two_factor_code
         self._session: Session = Session()
         self._token: str = ""
         self._created_at: float = 0.0
@@ -127,10 +133,14 @@ class WebSession:
             allow_redirects=True,
         )
 
+        # Accounts with email 2FA are redirected to a code-entry page
+        if "/email-2fa" in response.url:
+            response = self._submit_email_2fa(response)
+
         # Refresh the token from the redirected page
         self._extract_token(response)
 
-        # Verify login succeeded — the page title should be "Home | BrickPlanet"
+        # Verify login succeeded - the page title should be "Home | BrickPlanet"
         if "Home | BrickPlanet" not in response.text:
             raise ConnectionRefusedError(
                 f"[{self.username}] Web login failed — check username/password."
@@ -139,6 +149,34 @@ class WebSession:
         self._created_at = time.time()
         self._failures = 0
         self._retry_at = 0.0
+
+    def _submit_email_2fa(self, page: Response) -> Response:
+        """
+        Submit the emailed 6-digit code on the 2FA page.
+
+        Codes are single-use and expire, so a stored code only works for
+        the login it was issued for. Without one, login fails with a clear
+        message instead of a generic "check password" error.
+        """
+        if not self._two_factor_code:
+            raise WebSessionError(
+                f"[{self.username}] Account requires email 2FA. Add a "
+                "'two-factor-code' to its api_tokens entry, or disable 2FA "
+                "on the account."
+            )
+        self._extract_token(page)
+        action = re.search(r'<form[^>]*action="([^"]*email-2fa[^"]*)"', page.text)
+        url = action.group(1) if action else f"{_WEB_BASE}/account/email-2fa/verify"
+        return self._send(
+            "POST",
+            url,
+            data={
+                "_token": self._token,
+                "code": self._two_factor_code,
+                "trust_device": "1",
+            },
+            allow_redirects=True,
+        )
 
     def _is_stale(self) -> bool:
         return time.time() - self._created_at >= SESSION_LIFETIME_SECONDS
