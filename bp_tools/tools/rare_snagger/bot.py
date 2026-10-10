@@ -1,10 +1,8 @@
 import sys
-import time
 
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
 
-from .constants import WALLET_REFRESH_INTERVAL
 from .db import (
     count_items,
     init_rare_cache,
@@ -38,38 +36,33 @@ class SnaggerBot(BotBase[SnaggerConfig]):
     ) -> None:
         super().__init__(ctx, config, poll_interval=poll_interval, **kwargs)
 
-        self._rare_raps = None
-        self._rare_names = None
+        self._rare_raps: dict[int, int] = {}
+        self._rare_names: dict[int, str] = {}
         self._rare_item_ids: list[int] = []
         self._scan_index: int = 0
         self._cycle_count: int = 1
         self._pending_buy: PendingBuy | None = None
-
-        # Wallet cache
-        self._wallet: dict[str, int] = {}
-        self._last_wallet_refresh: float = 0.0
-        self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
 
     def initialize(self) -> None:
         config_dir = getattr(self._ctx, "config_dir", None)
 
         # Autopopulate cache if empty
         if count_items(config_dir) == 0:
-            self._log("No rare items cached — scanning catalog...")
+            self._log("No rare items cached - scanning catalog...")
             client = self._next_get_client()
             init_rare_cache(client, config_dir=config_dir, log=self._log)
 
         self._rare_item_ids = load_rare_ids(config_dir)
-        self._rare_names: dict[int, str] = load_rare_names(config_dir)
-        # TEMPORARY FALLBACK — local RAP values until API populates average_sales_price
-        self._rare_raps: dict[int, int] = load_rare_raps(config_dir)
+        self._rare_names = load_rare_names(config_dir)
+        # TEMPORARY FALLBACK - local RAP values until API populates average_sales_price
+        self._rare_raps = load_rare_raps(config_dir)
         self._log(f"Loaded {len(self._rare_item_ids)} rare items from cache.", True)
 
         # Fetch initial wallet
-        self._refresh_wallet()
+        balances = self._refresh_wallet()
         self._log(
-            f"Wallet — {self._wallet.get('credits', 0):,} credits, "
-            f"{self._wallet.get('bits', 0):,} bits"
+            f"Wallet — {balances.get('credits', 0):,} credits, "
+            f"{balances.get('bits', 0):,} bits"
         )
 
     def _refresh_items(self) -> None:
@@ -151,19 +144,6 @@ class SnaggerBot(BotBase[SnaggerConfig]):
                 seller="?",
             )
 
-    def _refresh_wallet(self) -> dict[str, int]:
-        """Fetch fresh wallet from /me."""
-        me = self._write_client.get_me()
-        self._wallet = me.get("data", {}).get("wallets", {"credits": 0, "bits": 0})
-        self._last_wallet_refresh = time.time()
-        return self._wallet
-
-    def _get_cached_wallet(self, force: bool = False) -> dict[str, int]:
-        elapsed = time.time() - self._last_wallet_refresh
-        if force or elapsed > self._WALLET_REFRESH_INTERVAL:
-            return self._refresh_wallet()
-        return self._wallet
-
     def _verify_listing(self, buy: "PendingBuy") -> tuple[int, int, str] | None:
         """Verify listing still exists and price is valid.
 
@@ -207,7 +187,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         seller_name: str,
     ) -> None:
         """Check wallet and attempt the purchase."""
-        wallet = self._get_cached_wallet()
+        wallet = self._get_wallet()
         credits_balance = wallet.get("credits", 0)
         if credits_balance < actual_price:
             wallet = self._refresh_wallet()
