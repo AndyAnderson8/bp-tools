@@ -59,34 +59,39 @@ def test_error_response_raises_api_error_with_status() -> None:
     assert "duplicate" in str(info.value)
 
 
-def test_429_is_retried_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(api_mod.time, "sleep", lambda _s: None)
+def test_429_is_not_retried_and_starts_a_cooldown() -> None:
     client = ApiClient(token="t")
     client._session.request = mock.Mock(  # type: ignore[method-assign]
-        side_effect=[
-            _response(429, headers={"Retry-After": "1"}),
-            _response(200, {"ok": True}),
-        ]
-    )
-
-    assert client.get("/me") == {"ok": True}
-    assert client._session.request.call_count == 2
-
-
-def test_persistent_429_gives_up_after_three_attempts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(api_mod.time, "sleep", lambda _s: None)
-    client = ApiClient(token="t")
-    client._session.request = mock.Mock(  # type: ignore[method-assign]
-        return_value=_response(429, headers={"Retry-After": "0"})
+        return_value=_response(429, headers={"Retry-After": "1"})
     )
 
     with pytest.raises(ApiError) as info:
         client.get("/me")
 
     assert info.value.status_code == 429
-    assert client._session.request.call_count == 3
+    assert client._session.request.call_count == 1  # never retried
+    assert client._paused_for() >= api_mod.RATE_LIMIT_COOLDOWN_SECONDS - 5
+
+
+def test_requests_fail_fast_during_cooldown_without_network() -> None:
+    client = ApiClient(token="t")
+    client._paused_until = api_mod.time.monotonic() + 600
+    client._session.request = mock.Mock()  # type: ignore[method-assign]
+
+    with pytest.raises(ApiError, match="paused"):
+        client.get("/me")
+
+    client._session.request.assert_not_called()
+
+
+def test_requests_resume_after_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = ApiClient(token="t")
+    client._paused_until = api_mod.time.monotonic() - 1  # cooldown already over
+    client._session.request = mock.Mock(  # type: ignore[method-assign]
+        return_value=_response(200, {"ok": True})
+    )
+
+    assert client.get("/me") == {"ok": True}
 
 
 def test_limiter_sleeps_when_window_is_full(monkeypatch: pytest.MonkeyPatch) -> None:

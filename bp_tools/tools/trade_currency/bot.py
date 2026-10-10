@@ -171,7 +171,10 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             )
             order_id = result.get("data", {}).get("id")
             state = self._sides[side]
-            if order_id is None and getattr(self._write_client, "dry_run", False) is True:
+            if (
+                order_id is None
+                and getattr(self._write_client, "dry_run", False) is True
+            ):
                 self._log(f"[dry run] {side.label} order not sent")
                 return None
             if order_id is None:
