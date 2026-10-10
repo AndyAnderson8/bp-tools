@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import Any
 from unittest import mock
 
-import pytest
-
 from bp_tools.core import rare_cache
 from bp_tools.core.rare_cache import RareCache
 
