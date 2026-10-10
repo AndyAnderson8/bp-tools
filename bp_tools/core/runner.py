@@ -1,6 +1,7 @@
 import importlib
 import pkgutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Type
@@ -248,7 +249,7 @@ def _force_init_remaining(bots: list[BotBase]) -> None:
             print(f"  [{b.name}] Init error: {exc}")
 
 
-def _initialize_bots(bots: list[BotBase]) -> None:
+def initialize_bots(bots: list[BotBase]) -> None:
     """
     Call ``initialize()`` on each bot in dependency order.
 
@@ -282,32 +283,51 @@ def _initialize_bots(bots: list[BotBase]) -> None:
             break
 
 
-def _tick_bot(
+def tick_bot(
     b: BotBase,
     now: float,
     last_run: dict[str, float],
 ) -> None:
-    """Run a single bot tick if its interval has elapsed."""
+    """Run a single bot tick if it is enabled and its interval has elapsed."""
+    if not b.enabled:
+        return
     elapsed = now - last_run[b.name]
     if elapsed >= b.poll_interval:
         try:
             b.run_once()
+            b.last_error = ""
         except Exception as exc:
+            b.last_error = str(exc)
             print(f"  [{b.name}] Error: {exc}")
+        b.last_run_at = time.time()
         last_run[b.name] = time.monotonic()
 
 
-def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
-    """Main polling loop. Returns exit code."""
-    start_live()
-    last_run: dict[str, float] = {b.name: 0.0 for b in bots}
+def run_bots(
+    bots: list[BotBase],
+    should_stop: Callable[[], bool],
+    sleep_seconds: float,
+) -> None:
+    """
+    Tick *bots* until `should_stop()` returns True.
 
+    :param bots: Initialized bots.
+    :param should_stop: Polled once per loop iteration.
+    :param sleep_seconds: Delay between loop iterations.
+    """
+    last_run: dict[str, float] = {b.name: 0.0 for b in bots}
+    while not should_stop():
+        now = time.monotonic()
+        for b in bots:
+            tick_bot(b, now, last_run)
+        time.sleep(sleep_seconds)
+
+
+def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
+    """Main polling loop for the CLI. Returns exit code."""
+    start_live()
     try:
-        while True:
-            now = time.monotonic()
-            for b in bots:
-                _tick_bot(b, now, last_run)
-            time.sleep(sleep_seconds)
+        run_bots(bots, should_stop=lambda: False, sleep_seconds=sleep_seconds)
     except KeyboardInterrupt:
         stop_live()
         print("\nStopped (Ctrl+C).")
@@ -376,6 +396,44 @@ def _print_tool_summary(
     print()
 
 
+def build_bots(
+    config_path: Path,
+    tools_package: str = "bp_tools.tools",
+    dry_run: bool = False,
+    only_tools: list[str] | None = None,
+) -> list[BotBase]:
+    """
+    Load config, create API clients, and instantiate enabled bots.
+
+    Bots are not initialized; call :func:`initialize_bots` afterwards.
+    Returns an empty list if there is nothing to run.
+
+    :param config_path: Path to config.yaml.
+    :param tools_package: Tools root package.
+    :param dry_run: If True, POST/DELETE are printed not sent.
+    :param only_tools: If set, only build these tool names/UUIDs.
+    :returns: Instantiated bots.
+    """
+    cfg = load_config(config_path)
+    registry = discover_tools(tools_package)
+
+    enabled = _enabled_tools(cfg)
+    if only_tools:
+        enabled = _filter_tools(only_tools, enabled, registry)
+    if not enabled:
+        print("No enabled tools in config.")
+        return []
+
+    bot_usernames = _collect_usernames(enabled)
+    if not bot_usernames:
+        print("No usernames configured for enabled tools.")
+        return []
+
+    ctx = _build_context(cfg, config_path, dry_run, bot_usernames)
+    _print_tool_summary(enabled, registry, dry_run)
+    return _instantiate_bots(enabled, registry, ctx)
+
+
 def start(
     config_path: Path,
     tools_package: str = "bp_tools.tools",
@@ -398,24 +456,9 @@ def start(
 
     _print_banner(FRAMEWORK_VERSION)
 
-    cfg = load_config(config_path)
-    registry = discover_tools(tools_package)
-
-    enabled = _enabled_tools(cfg)
-    if only_tools:
-        enabled = _filter_tools(only_tools, enabled, registry)
-    if not enabled:
-        print("No enabled tools in config.")
+    bots = build_bots(config_path, tools_package, dry_run, only_tools)
+    if not bots:
         return 0
 
-    bot_usernames = _collect_usernames(enabled)
-    if not bot_usernames:
-        print("No usernames configured for enabled tools.")
-        return 0
-
-    ctx = _build_context(cfg, config_path, dry_run, bot_usernames)
-    _print_tool_summary(enabled, registry, dry_run)
-
-    bots = _instantiate_bots(enabled, registry, ctx)
-    _initialize_bots(bots)
+    initialize_bots(bots)
     return _run_loop(bots, sleep_seconds)

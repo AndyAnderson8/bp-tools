@@ -73,6 +73,14 @@ python -m bp_tools --config config.yaml
 | `--sleep N` | Seconds between polling cycles (default: `0.1`) |
 | `--dry-run` | Print mutating requests instead of sending them |
 | `--list` | List enabled tools and exit |
+| `--tui` | Full-screen terminal UI: toggle bots with `space`, quit with `q` (needs `pip install .[tui]`) |
+
+## Tests
+
+```bash
+pip install .[dev]
+pytest
+```
 
 ## Writing Your Own Bot
 

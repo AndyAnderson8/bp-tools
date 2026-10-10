@@ -1,6 +1,7 @@
 import sys
+from typing import Callable
 
-from rich.console import Console, Group
+from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.text import Text
 
@@ -17,6 +18,7 @@ from rich.text import Text
 _console = Console(highlight=False)
 _status_lines: dict[str, str] = {}
 _live: Live | None = None
+_log_sink: Callable[[str, bool], None] | None = None
 
 
 def parse_semver(version: str) -> tuple[int, int, int]:
@@ -50,7 +52,7 @@ def _gradient_text(text: str, warning: bool = False) -> Text:
 
 def _build_status_display() -> Group:
     """Build the Rich renderable for the status dashboard."""
-    parts = [Text(""), _gradient_text("Current status(es):")]
+    parts: list[RenderableType] = [Text(""), _gradient_text("Current status(es):")]
     for key, line in _status_lines.items():
         if not line:
             continue
@@ -95,6 +97,21 @@ def set_status(source: str, text: str) -> None:
         _live.update(_build_status_display())
 
 
+def get_status(source: str) -> str:
+    """Return the current status line for *source* ('' if none)."""
+    return _status_lines.get(source, "")
+
+
+def set_log_sink(sink: Callable[[str, bool], None] | None) -> None:
+    """
+    Route log messages to *sink* instead of the console (None restores it).
+
+    Used by alternate front-ends (e.g. the TUI) to capture log lines.
+    """
+    global _log_sink
+    _log_sink = sink
+
+
 def log_print(
     text: str = "",
     warning: bool = False,
@@ -103,11 +120,13 @@ def log_print(
     """
     Print a scrolling log message with gradient colouring.
 
-    When the Live status display is active, prints above the status
-    block so it isn't overwritten.  Otherwise falls through to raw
-    ANSI gradient output.
+    When a log sink is set, the message goes there instead. When the Live
+    status display is active, prints above the status block so it isn't
+    overwritten.  Otherwise falls through to raw ANSI gradient output.
     """
-    if _live is not None:
+    if _log_sink is not None:
+        _log_sink(text, warning)
+    elif _live is not None:
         _live.console.print(_gradient_text(text, warning=warning))
     else:
         _gradient_print_raw(text, warning=warning)
