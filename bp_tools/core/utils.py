@@ -1,4 +1,5 @@
 import sys
+import time
 from typing import Callable
 
 from rich.console import Console, Group, RenderableType
@@ -100,6 +101,15 @@ def set_status(source: str, text: str) -> None:
 def get_status(source: str) -> str:
     """Return the current status line for *source* ('' if none)."""
     return _status_lines.get(source, "")
+
+
+def sleep_with_status(source: str, text: str, seconds: float) -> None:
+    """Show *text* on the *source* status line while sleeping for *seconds*."""
+    set_status(source, text)
+    try:
+        time.sleep(seconds)
+    finally:
+        set_status(source, "")
 
 
 def set_log_sink(sink: Callable[[str, bool], None] | None) -> None:

@@ -9,7 +9,10 @@ from requests import Response, Session
 
 from bp_tools.core.constants import BASE_URL, RATE_LIMITS
 from bp_tools.core.utils import log_print as print
-from bp_tools.core.utils import set_status
+from bp_tools.core.utils import sleep_with_status
+
+# Attempts per request when the server answers 429
+_MAX_ATTEMPTS = 3
 
 
 class _RateLimiter:
@@ -29,13 +32,12 @@ class _RateLimiter:
         if len(self._timestamps) >= self._limit:
             sleep_for = self._timestamps[0] + self._window - now
             if sleep_for > 0:
-                set_status(
+                sleep_with_status(
                     "_rate_limit",
                     f"Rate limit ({self._limit}/{self._window}s)"
                     f" — sleeping {sleep_for:.1f}s",
+                    sleep_for,
                 )
-                time.sleep(sleep_for)
-                set_status("_rate_limit", "")
         self._timestamps.append(time.monotonic())
 
 
@@ -99,16 +101,43 @@ class ApiClient:
         if limiter:
             limiter.acquire()
 
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Optional[dict[str, Any]] = None,
+        json_body: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """
+        Send a rate-limited request and return the parsed JSON body.
+
+        Retries up to three times on a server-side 429. Any other non-2xx
+        response raises ``RuntimeError`` with the status and body.
+        """
+        url = f"{BASE_URL}{path}"
+        for _ in range(_MAX_ATTEMPTS):
+            self._rate_limit(method, path)
+            response = self._session.request(method, url, params=params, json=json_body)
+            if not self._handle_429(response):
+                break
+        if not response.ok:
+            try:
+                detail = response.json()
+            except Exception:
+                detail = response.text
+            raise RuntimeError(f"{response.status_code} {path}: {detail}")
+        return response.json()
+
     def _handle_429(self, response: Response) -> bool:
         """Sleep on server-side 429 as a fallback. Returns True if retryable."""
         if response.status_code == 429:
             retry_after = int(response.headers.get("Retry-After", "5")) + 1
-            set_status(
+            sleep_with_status(
                 "_rate_limit",
                 f"429 Too Many Requests — sleeping {retry_after}s",
+                retry_after,
             )
-            time.sleep(retry_after)
-            set_status("_rate_limit", "")
             return True
         return False
 
@@ -124,19 +153,7 @@ class ApiClient:
         :param params: Query-string parameters.
         :returns: Parsed JSON response.
         """
-        url = f"{BASE_URL}{path}"
-        for _ in range(3):
-            self._rate_limit("GET", path)
-            response = self._session.get(url, params=params)
-            if not self._handle_429(response):
-                break
-        if not response.ok:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text
-            raise RuntimeError(f"{response.status_code} {path}: {detail}")
-        return response.json()
+        return self._request("GET", path, params=params)
 
     def post(
         self,
@@ -153,19 +170,7 @@ class ApiClient:
         if self.dry_run:
             print(f"  [DRY RUN] POST {path} body={json_body}")
             return {"data": {"message": "dry-run"}}
-        url = f"{BASE_URL}{path}"
-        for _ in range(3):
-            self._rate_limit("POST", path)
-            response = self._session.post(url, json=json_body)
-            if not self._handle_429(response):
-                break
-        if not response.ok:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text
-            raise RuntimeError(f"{response.status_code} {path}: {detail}")
-        return response.json()
+        return self._request("POST", path, json_body=json_body)
 
     def delete(self, path: str) -> dict[str, Any]:
         """
@@ -177,19 +182,7 @@ class ApiClient:
         if self.dry_run:
             print(f"  [DRY RUN] DELETE {path}")
             return {"data": {"message": "dry-run"}}
-        url = f"{BASE_URL}{path}"
-        for _ in range(3):
-            self._rate_limit("DELETE", path)
-            response = self._session.delete(url)
-            if not self._handle_429(response):
-                break
-        if not response.ok:
-            try:
-                detail = response.json()
-            except Exception:
-                detail = response.text
-            raise RuntimeError(f"{response.status_code} {path}: {detail}")
-        return response.json()
+        return self._request("DELETE", path)
 
     # ------------------------------------------------------------------
     # High-level API methods — Items
