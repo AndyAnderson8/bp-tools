@@ -54,3 +54,6 @@ Thumbs.db
 # ----------------------
 *.swp
 *.swo
+
+# Trusted-device cookies (session credentials)
+data/web_sessions/

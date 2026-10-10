@@ -1,5 +1,6 @@
 import sys
 import time
+from pathlib import Path
 
 from bp_tools.core.api import RateLimiter
 from bp_tools.core.constants import RATE_LIMITS
@@ -73,6 +74,13 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         # Seed the stock tracker so existing items aren't treated as "new"
         self._seed_tracker()
 
+    def _device_cookie_file(self, username: str) -> Path | None:
+        """Where the trusted-device cookie for *username* is kept (None = not kept)."""
+        config_dir = self._ctx.config_dir
+        if config_dir is None:
+            return None
+        return config_dir / "data" / "web_sessions" / f"{username}.json"
+
     def _login_web_sessions(self) -> None:
         """Log in a web session for each configured user and report the result."""
         tokens = {u.username: u for u in self._ctx.config.users}
@@ -87,6 +95,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
                     username=username,
                     password=token.password,
                     two_factor_code=token.two_factor_code,
+                    cookie_file=self._device_cookie_file(username),
                 )
                 self._log(f"[{username}] LOGIN OK")
             except Exception as exc:

@@ -6,8 +6,10 @@ the standard ``POST /shop/{id}/buy-item`` form endpoint instead of the
 API ``POST /items/{id}/buy``.
 """
 
+import json
 import re
 import time
+from pathlib import Path
 from typing import Any
 
 from requests import Response, Session
@@ -16,6 +18,9 @@ from bp_tools.core.utils import log_print as print
 
 # BrickPlanet web base (not the API base)
 _WEB_BASE = "https://www.brickplanet.com"
+_COOKIE_DOMAIN = "www.brickplanet.com"
+# Set by the site when a 2FA verify is submitted with trust_device=1.
+_DEVICE_COOKIE = "bp_2fa_device"
 
 # Maximum session lifetime before forced re-login (24 hours in seconds)
 SESSION_LIFETIME_SECONDS = 86400
@@ -58,10 +63,12 @@ class WebSession:
         username: str,
         password: str,
         two_factor_code: str | None = None,
+        cookie_file: Path | None = None,
     ) -> None:
         self.username = username
         self._password = password
         self._two_factor_code = two_factor_code
+        self._cookie_file = cookie_file
         self._session: Session = Session()
         self._token: str = ""
         self._created_at: float = 0.0
@@ -69,6 +76,33 @@ class WebSession:
         self._failures: int = 0
 
         self._login()
+
+    # ------------------------------------------------------------------
+    # Trusted-device cookie (bp_2fa_device): skips email 2FA for ~30 days
+    # ------------------------------------------------------------------
+
+    def _load_device_cookie(self) -> None:
+        if self._cookie_file is None or not self._cookie_file.exists():
+            return
+        try:
+            value = json.loads(self._cookie_file.read_text(encoding="utf-8"))[
+                _DEVICE_COOKIE
+            ]
+        except (ValueError, KeyError, TypeError):
+            return
+        if isinstance(value, str) and value:
+            self._session.cookies.set(_DEVICE_COOKIE, value, domain=_COOKIE_DOMAIN)
+
+    def _save_device_cookie(self) -> None:
+        if self._cookie_file is None:
+            return
+        value = self._session.cookies.get(_DEVICE_COOKIE)
+        if not value:
+            return
+        self._cookie_file.parent.mkdir(parents=True, exist_ok=True)
+        self._cookie_file.write_text(
+            json.dumps({_DEVICE_COOKIE: value}), encoding="utf-8"
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -111,6 +145,7 @@ class WebSession:
         self._session.close()
         self._session = Session()
         self._token = ""
+        self._load_device_cookie()
 
         # Step 1: GET the login page to seed cookies + grab _token
         login_page = self._send("GET", f"{_WEB_BASE}/login")
@@ -147,6 +182,7 @@ class WebSession:
             )
 
         self._created_at = time.time()
+        self._save_device_cookie()
         self._failures = 0
         self._retry_at = 0.0
 
