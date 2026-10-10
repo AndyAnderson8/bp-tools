@@ -5,7 +5,7 @@ from unittest import mock
 import pytest
 
 from bp_tools.core import api as api_mod
-from bp_tools.core.api import ApiClient, ApiError, _RateLimiter
+from bp_tools.core.api import ApiClient, ApiError, RateLimiter
 from bp_tools.core.constants import RATE_LIMITS
 
 
@@ -92,7 +92,7 @@ def test_persistent_429_gives_up_after_three_attempts(
 def test_limiter_sleeps_when_window_is_full(monkeypatch: pytest.MonkeyPatch) -> None:
     slept: list[float] = []
     monkeypatch.setattr(api_mod.time, "sleep", slept.append)
-    limiter = _RateLimiter(limit=2, window=60)
+    limiter = RateLimiter(limit=2, window=60)
 
     limiter.acquire()
     limiter.acquire()
@@ -105,7 +105,7 @@ def test_limiter_sleeps_when_window_is_full(monkeypatch: pytest.MonkeyPatch) -> 
 def test_limiter_allows_calls_within_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     slept: list[float] = []
     monkeypatch.setattr(api_mod.time, "sleep", slept.append)
-    limiter = _RateLimiter(limit=5, window=60)
+    limiter = RateLimiter(limit=5, window=60)
 
     for _ in range(5):
         limiter.acquire()

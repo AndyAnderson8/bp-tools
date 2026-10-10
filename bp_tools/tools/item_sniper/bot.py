@@ -1,6 +1,8 @@
 import sys
 import time
 
+from bp_tools.core.api import RateLimiter
+from bp_tools.core.constants import RATE_LIMITS
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
 
@@ -47,6 +49,9 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         # Per-user web sessions (form purchases), created in initialize()
         self._web_sessions: dict[str, WebSession] = {}
+        # Web purchases bypass ApiClient, so they get their own limiter per
+        # account, using the API's trading-tier budget as a conservative cap.
+        self._web_limiters: dict[str, RateLimiter] = {}
         # (username, item_id) pairs already bought or owned this session
         self._purchased: set[tuple[str, int]] = set()
         # Per-user owned item IDs from /me/inventory, cached for a while
@@ -372,6 +377,15 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._log(f"[{username}] Buying with {currency} ({price:,})")
         self._buy_via_web(username, item, web_session, currency)
 
+    def _web_limiter(self, username: str) -> RateLimiter:
+        """Per-account limiter for web purchases (trading-tier budget)."""
+        if username not in self._web_limiters:
+            tier = RATE_LIMITS["tiers"]["trading"]
+            self._web_limiters[username] = RateLimiter(
+                limit=int(tier["limit"]), window=int(tier["window"])
+            )
+        return self._web_limiters[username]
+
     def _buy_via_web(
         self,
         username: str,
@@ -381,6 +395,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
     ) -> None:
         """Purchase an item using the web form POST."""
         try:
+            self._web_limiter(username).acquire()
             result = web_session.buy_item(item_id=item.item_id, currency=currency)
         except Exception as exc:
             self._log(f"[{username}] Web buy failed — {exc}")
