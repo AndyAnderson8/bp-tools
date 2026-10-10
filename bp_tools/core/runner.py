@@ -1,7 +1,7 @@
 import importlib
 import pkgutil
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Type
 
@@ -14,7 +14,6 @@ from bp_tools.core.constants import (
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.utils import log_print as print
 from bp_tools.core.utils import start_live, stop_live
-from bp_tools.core.web_session import WebSession
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,13 +24,11 @@ class RunnerContext:
     :param config: Loaded app config.
     :param clients: API clients keyed by username.
     :param config_dir: Directory containing config.yaml (for DB path).
-    :param web_sessions: Browser sessions keyed by username (for web purchases).
     """
 
     config: AppConfig
     clients: dict[str, ApiClient]
     config_dir: Path | None = None
-    web_sessions: dict[str, WebSession] = field(default_factory=dict)
 
     @property
     def dev_mode(self) -> bool:
@@ -352,25 +349,10 @@ def _build_context(
         cfg, all_usernames, rate_limits=RATE_LIMITS, dry_run=dry_run
     )
 
-    # Create web sessions for users that have passwords configured
-    web_sessions: dict[str, WebSession] = {}
-    for user_token in cfg.users:
-        if user_token.password:
-            try:
-                web_sessions[user_token.username] = WebSession(
-                    username=user_token.username,
-                    password=user_token.password,
-                )
-            except Exception as exc:
-                print(
-                    f"  [!] Web session login failed for {user_token.username}: {exc}"
-                )
-
     return RunnerContext(
         config=cfg,
         clients=clients,
         config_dir=config_path.parent,
-        web_sessions=web_sessions,
     )
 
 

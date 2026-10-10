@@ -1,12 +1,12 @@
 import sys
 import time
 
-from bp_tools.core.constants import DEFAULT_SNIPER_DELAY
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
 
-from .constants import WALLET_REFRESH_INTERVAL
+from .constants import OWNED_CACHE_SECONDS, WALLET_REFRESH_INTERVAL
 from .models import ItemSniperConfig, ShopItem, UserSniperConfig
+from .web_session import WebSession
 
 
 class ItemSniperBot(BotBase[ItemSniperConfig]):
@@ -49,10 +49,20 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._wallet_refresh_times: dict[str, float] = {}
         self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
 
+        # Per-user web sessions (form purchases), created in initialize()
+        self._web_sessions: dict[str, WebSession] = {}
+        # (username, item_id) pairs already bought or owned this session
+        self._purchased: set[tuple[str, int]] = set()
+        # Per-user owned item IDs from /me/inventory, cached for a while
+        self._owned: dict[str, set[int]] = {}
+        self._owned_refreshed: dict[str, float] = {}
+
     def initialize(self) -> None:
-        delay = 0.0 if self._ctx.dev_mode else DEFAULT_SNIPER_DELAY
+        delay = 0.0 if self._ctx.dev_mode else 5.0
         for user_cfg in self.config.users:
             self._user_delays[user_cfg.username] = delay
+
+        self._login_web_sessions()
 
         # Fetch initial wallets for all configured users
         for user_cfg in self.config.users:
@@ -61,6 +71,25 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         # Seed the stock tracker so existing items aren't treated as "new"
         self._seed_tracker()
+
+    def _login_web_sessions(self) -> None:
+        """Log in a web session for each configured user and report the result."""
+        tokens = {u.username: u for u in self._ctx.config.users}
+        for user_cfg in self.config.users:
+            username = user_cfg.username
+            token = tokens.get(username)
+            if token is None or not token.password:
+                self._log(f"[{username}] LOGIN SKIPPED — no password in config")
+                continue
+            try:
+                self._web_sessions[username] = WebSession(
+                    username=username,
+                    password=token.password,
+                    two_factor_code=token.two_factor_code,
+                )
+                self._log(f"[{username}] LOGIN OK")
+            except Exception as exc:
+                self._log(f"[{username}] LOGIN FAILED — {exc}")
 
     def _seed_tracker(self) -> None:
         """Poll rares and all items once to seed trackers without buying."""
@@ -82,7 +111,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             if not isinstance(data, list):
                 continue
 
-            items = [ShopItem.from_api(item) for item in data]
+            items = self._parse_items(data)
             items = [item for item in items if item.creator_id == 1]
 
             for item in items:
@@ -130,8 +159,27 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._stock_tracker[item.item_id] = item.remaining_stock
         self._on_sale_tracker[item.item_id] = item.on_sale
 
+    def _parse_items(self, data: list) -> list[ShopItem]:
+        """Parse API item payloads, logging and skipping malformed entries."""
+        items: list[ShopItem] = []
+        for raw in data:
+            try:
+                items.append(ShopItem.from_api(raw))
+            except Exception as exc:
+                self._log(f"Skipping malformed item — {exc}")
+        return items
+
+    def _check_web_sessions(self) -> None:
+        """Re-login any web session older than 24 hours."""
+        for username, web_session in self._web_sessions.items():
+            try:
+                web_session.ensure_fresh_session()
+            except Exception as exc:
+                self._log(f"[{username}] 24h session refresh failed — {exc}")
+
     def update(self) -> None:
         self._items_to_buy.clear()
+        self._check_web_sessions()
 
         client = self._next_get_client()
         rare_flag, label = self._resolve_poll_mode()
@@ -161,7 +209,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             self._loop_iterations += 1
             return
 
-        items = [ShopItem.from_api(item) for item in data]
+        items = self._parse_items(data)
         items = [item for item in items if item.creator_id == 1]
 
         for item in items:
@@ -211,11 +259,15 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         return None
 
     def _refresh_user_wallet(self, username: str) -> dict[str, int]:
-        """Fetch fresh wallet for a specific user."""
+        """Fetch fresh wallet for a specific user. Keeps the cached wallet on error."""
         client = self._ctx.clients.get(username)
         if client is None:
             return {}
-        me = client.get_me()
+        try:
+            me = client.get_me()
+        except Exception as exc:
+            self._log(f"[{username}] Wallet refresh failed — {exc}")
+            return self._wallets.get(username, {})
         wallet = me.get("data", {}).get("wallets", {"credits": 0, "bits": 0})
         self._wallets[username] = wallet
         self._wallet_refresh_times[username] = time.time()
@@ -246,15 +298,66 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
                 bt_str += f" (limit: {caps.max_bits:,})"
             self._log(f"[{username}] Wallet — {cr_str}, {bt_str}")
 
+    def _owned_item_ids(self, username: str) -> set[int] | None:
+        """
+        Item IDs in the user's backpack, from ``GET /me/inventory``.
+
+        Cached for ``OWNED_CACHE_SECONDS``; a successful buy adds to the cache.
+        Returns None if the inventory could not be read.
+        """
+        now = time.time()
+        cached = self._owned.get(username)
+        if cached is not None and now - self._owned_refreshed[username] < (
+            OWNED_CACHE_SECONDS
+        ):
+            return cached
+
+        client = self._ctx.clients.get(username)
+        if client is None:
+            return None
+
+        owned: set[int] = set()
+        page = 1
+        try:
+            while True:
+                payload = client.get_inventory(per_page=50, page=page)
+                for entry in payload.get("data", []):
+                    item_id = entry.get("item", {}).get("id")
+                    if isinstance(item_id, int):
+                        owned.add(item_id)
+                last_page = payload.get("meta", {}).get("last_page", 1)
+                if page >= last_page:
+                    break
+                page += 1
+        except Exception as exc:
+            self._log(f"[{username}] Inventory check failed — {exc}")
+            return None
+
+        self._owned[username] = owned
+        self._owned_refreshed[username] = now
+        return owned
+
     def _buy_for_user(self, item: ShopItem, user_cfg: UserSniperConfig) -> None:
-        """Attempt to buy an item for a single user."""
+        """Attempt to buy an item for a single user (web purchases only)."""
         if user_cfg.rares_only and not item.rare:
             return
 
         username = user_cfg.username
-        client = self._ctx.clients.get(username)
-        if client is None:
-            self._log(f"[{username}] No API client — skipping.")
+        if (username, item.item_id) in self._purchased:
+            return
+
+        owned = self._owned_item_ids(username)
+        if owned is None:
+            self._log(f"[{username}] Inventory unavailable — skipping {item.name}.")
+            return
+        if item.item_id in owned:
+            self._log(f"[{username}] Already owned — skipping {item.name}.")
+            self._purchased.add((username, item.item_id))
+            return
+
+        web_session = self._web_sessions.get(username)
+        if web_session is None:
+            self._log(f"[{username}] No web session — skipping (web purchases only).")
             return
 
         wallet = self._get_cached_user_wallet(username)
@@ -274,63 +377,32 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             time.sleep(delay)
 
         self._log(f"[{username}] Buying with {currency} ({price:,})")
-        self._execute_buy(username, item, client, currency)
-
-    def _execute_buy(
-        self,
-        username: str,
-        item: ShopItem,
-        client: object,
-        currency: str,
-    ) -> None:
-        """Execute the purchase via web session or API fallback."""
-        # Prefer web session (form POST) — the API buy endpoint is disabled for new rares
-        web_session = self._ctx.web_sessions.get(username)
-        if web_session is not None:
-            self._buy_via_web(username, item, web_session, currency)
-        else:
-            self._buy_via_api(username, item, client, currency)
+        self._buy_via_web(username, item, web_session, currency)
 
     def _buy_via_web(
         self,
         username: str,
         item: ShopItem,
-        web_session: object,
+        web_session: WebSession,
         currency: str,
     ) -> None:
         """Purchase an item using the web form POST."""
         try:
-            result = web_session.buy_item(  # type: ignore[attr-defined]
-                item_id=item.item_id,
-                currency=currency,
-            )
-            if result.get("success"):
-                self._log(f"[{username}] Purchased! {result.get('message', 'Success')}")
-            else:
-                self._log(f"[{username}] Buy response — {result.get('message', '?')}")
-            self._refresh_user_wallet(username)
+            result = web_session.buy_item(item_id=item.item_id, currency=currency)
         except Exception as exc:
             self._log(f"[{username}] Web buy failed — {exc}")
+            return
 
-    def _buy_via_api(
-        self,
-        username: str,
-        item: ShopItem,
-        client: object,
-        currency: str,
-    ) -> None:
-        """Fallback: purchase via the API endpoint (may fail for new rares)."""
-        try:
-            result = client.buy_item(  # type: ignore[attr-defined]
-                item_id=item.item_id,
-                currency=currency,
-            )
-            msg = result.get("data", {}).get("message", "Success")
-            backpack_id = result.get("data", {}).get("backpack_id")
-            self._log(f"[{username}] Purchased! {msg} (backpack ID: {backpack_id})")
-            self._refresh_user_wallet(username)
-        except Exception as exc:
-            self._log(f"[{username}] Buy failed — {exc}")
+        if result.get("already_owned"):
+            self._log(f"[{username}] Already owned — skipping {item.name}.")
+            self._purchased.add((username, item.item_id))
+        elif result.get("success"):
+            self._log(f"[{username}] Purchased! {result.get('message', 'Success')}")
+            self._purchased.add((username, item.item_id))
+            self._owned.setdefault(username, set()).add(item.item_id)
+        else:
+            self._log(f"[{username}] Buy response — {result.get('message', '?')}")
+        self._refresh_user_wallet(username)
 
     def execute(self) -> None:
         if not self._items_to_buy:
@@ -342,6 +414,9 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         for item in self._items_to_buy:
             self._log(f"New/restocked item — {item} (stock: {item.remaining_stock})")
             for user_cfg in self.config.users:
-                self._buy_for_user(item, user_cfg)
+                try:
+                    self._buy_for_user(item, user_cfg)
+                except Exception as exc:
+                    self._log(f"[{user_cfg.username}] Buy step failed — {exc}")
 
         self._items_to_buy.clear()
