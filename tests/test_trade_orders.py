@@ -95,6 +95,7 @@ def test_startup_survives_failed_order_fetch(bot) -> None:
     client.cancel_order.assert_not_called()
     assert any("api down" in m for m in b._logs)
 
+
 def test_missing_order_id_holds_side_instead_of_reposting(bot) -> None:
     b, client = bot
     client.place_order.return_value = {"data": {"message": "ok"}}
