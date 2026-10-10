@@ -43,5 +43,5 @@ Either side can be omitted to run one-sided.
 |------|---------|
 | `bot.py` | `CurrencyExchangeBot` - orderbook polling, order management |
 | `models.py` | `CurrencyExchangeConfig`, `ExchangeSideConfig`, `TradeSide`, `SideState` |
-| `constants.py` | Tuning constants (tick size, wallet refresh interval) |
+| `constants.py` | Tuning constants (tick size) |
 | `__init__.py` | Plugin registration |

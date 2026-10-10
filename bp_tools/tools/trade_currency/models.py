@@ -38,10 +38,6 @@ class TradeSide(Enum):
         """Is the rate within the configured limit?"""
         return rate <= limit if self is TradeSide.BID else rate >= limit
 
-    def equivalent(self, amount: int, rate: float) -> int:
-        """Convert amount at rate to the other currency."""
-        return int(amount / rate) if self is TradeSide.BID else int(amount * rate)
-
 
 @dataclass
 class SideState:

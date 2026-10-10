@@ -17,14 +17,6 @@ class PendingBuy:
 
 
 @dataclass(frozen=True, slots=True)
-class ItemOverride:
-    """Per-item price override."""
-
-    item_id: int
-    max_credits: int  # 0 = skip this item entirely
-
-
-@dataclass(frozen=True, slots=True)
 class SnaggerConfig(BotConfigBase):
     """
     Tool config for snagger.

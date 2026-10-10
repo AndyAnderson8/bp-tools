@@ -22,15 +22,6 @@ _live: Live | None = None
 _log_sink: Callable[[str, bool], None] | None = None
 
 
-def parse_semver(version: str) -> tuple[int, int, int]:
-    """Parse 'major.minor.patch' into a 3-tuple. Returns (0,0,0) on error."""
-    try:
-        parts = version.split(".")
-        return (int(parts[0]), int(parts[1]), int(parts[2]))
-    except (IndexError, ValueError):
-        return (0, 0, 0)
-
-
 # -- gradient helpers --------------------------------------------------------
 
 _GRADIENT_NORMAL = ((0, 255, 255), (255, 95, 255))

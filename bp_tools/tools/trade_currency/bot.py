@@ -111,10 +111,6 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             else self.config.offer_credits
         )
 
-    def _best_price(self, side: TradeSide) -> float | None:
-        """Best bid or best ask from the orderbook."""
-        return self._best_bid if side is TradeSide.BID else self._best_ask
-
     def _levels(self, side: TradeSide) -> list[dict[str, Any]]:
         """Orderbook levels for the given side."""
         return self._bid_levels if side is TradeSide.BID else self._ask_levels
@@ -181,13 +177,6 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         except Exception as exc:
             self._log(f"Failed to place {side.label} order — {exc}")
             return None
-
-    def _second_best(self, side: TradeSide) -> float | None:
-        """Second-best rate on the given side of the book."""
-        levels = self._levels(side)
-        if len(levels) >= 2:
-            return levels[1]["rate"]
-        return None
 
     def _compute_rate(self, side: TradeSide, cfg: ExchangeSideConfig) -> float:
         """

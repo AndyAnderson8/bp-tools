@@ -41,7 +41,6 @@ Scans resale listings for rare items and auto-buys below a price threshold.
 | File | Purpose |
 |------|---------|
 | `bot.py` | `SnaggerBot` - resale scanning and buy logic |
-| `models.py` | `SnaggerConfig`, `PendingBuy`, `ItemOverride` dataclasses |
+| `models.py` | `SnaggerConfig`, `PendingBuy` dataclasses |
 | `db.py` | SQLite cache for rare item IDs and RAP values |
-| `constants.py` | Tuning constants (wallet refresh interval) |
 | `__init__.py` | Plugin registration |
