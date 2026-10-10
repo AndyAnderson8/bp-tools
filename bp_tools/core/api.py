@@ -15,6 +15,14 @@ from bp_tools.core.utils import sleep_with_status
 _MAX_ATTEMPTS = 3
 
 
+class ApiError(RuntimeError):
+    """Non-2xx response from the API."""
+
+    def __init__(self, status_code: int, path: str, detail: object) -> None:
+        super().__init__(f"{status_code} {path}: {detail}")
+        self.status_code = status_code
+
+
 class _RateLimiter:
     """Per-tier sliding-window rate limiter."""
 
@@ -126,7 +134,7 @@ class ApiClient:
                 detail = response.json()
             except Exception:
                 detail = response.text
-            raise RuntimeError(f"{response.status_code} {path}: {detail}")
+            raise ApiError(response.status_code, path, detail)
         return response.json()
 
     def _handle_429(self, response: Response) -> bool:
