@@ -1,6 +1,6 @@
 import sys
 
-from rich.console import Console, Group
+from rich.console import Console, Group, RenderableType
 from rich.live import Live
 from rich.text import Text
 
@@ -16,6 +16,7 @@ from rich.text import Text
 
 _console = Console(highlight=False)
 _status_lines: dict[str, str] = {}
+_panel: RenderableType | None = None
 _live: Live | None = None
 
 
@@ -50,7 +51,10 @@ def _gradient_text(text: str, warning: bool = False) -> Text:
 
 def _build_status_display() -> Group:
     """Build the Rich renderable for the status dashboard."""
-    parts = [Text(""), _gradient_text("Current status(es):")]
+    parts: list[RenderableType] = []
+    if _panel is not None:
+        parts.append(_panel)
+    parts += [Text(""), _gradient_text("Current status(es):")]
     for key, line in _status_lines.items():
         if not line:
             continue
@@ -91,6 +95,19 @@ def stop_live() -> None:
 def set_status(source: str, text: str) -> None:
     """Update or create the status line for *source* and redraw."""
     _status_lines[source] = text
+    if _live is not None:
+        _live.update(_build_status_display())
+
+
+def get_status(source: str) -> str:
+    """Return the current status line for *source* ('' if none)."""
+    return _status_lines.get(source, "")
+
+
+def set_panel(renderable: RenderableType | None) -> None:
+    """Set a renderable shown above the status lines (None clears it)."""
+    global _panel
+    _panel = renderable
     if _live is not None:
         _live.update(_build_status_display())
 

@@ -287,13 +287,18 @@ def _tick_bot(
     now: float,
     last_run: dict[str, float],
 ) -> None:
-    """Run a single bot tick if its interval has elapsed."""
+    """Run a single bot tick if it is enabled and its interval has elapsed."""
+    if not b.enabled:
+        return
     elapsed = now - last_run[b.name]
     if elapsed >= b.poll_interval:
         try:
             b.run_once()
+            b.last_error = ""
         except Exception as exc:
+            b.last_error = str(exc)
             print(f"  [{b.name}] Error: {exc}")
+        b.last_run_at = time.time()
         last_run[b.name] = time.monotonic()
 
 

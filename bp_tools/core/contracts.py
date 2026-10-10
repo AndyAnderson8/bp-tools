@@ -77,6 +77,10 @@ class BotBase(ABC, Generic[C]):
         self.tool_version: str = tool_version
         self._poll_interval: float = poll_interval
         self._get_client_index: int = 0
+        # Runtime state, controlled/observed by the optional UI
+        self.enabled: bool = True
+        self.last_run_at: float | None = None
+        self.last_error: str = ""
 
     def _log(self, msg: str, overwrite: bool = False) -> None:
         """Print a scrolling log message with bot name prefix.
