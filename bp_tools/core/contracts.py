@@ -130,6 +130,26 @@ class BotBase(ABC, Generic[C]):
         return client
 
     # ------------------------------------------------------------------
+    # Shared wallet helpers (balances are shared by all bots via ctx.wallets)
+    # ------------------------------------------------------------------
+
+    @property
+    def _write_account(self) -> str:
+        """Username of the account this bot writes to (raises if not configured)."""
+        username = self._write_username
+        if username is None:
+            raise ValueError(f"Bot '{self.name}' has no write username configured.")
+        return username
+
+    def _get_wallet(self, force: bool = False) -> dict[str, int]:
+        """Cached balances for the write account, refreshed if stale or *force*."""
+        return self._ctx.wallets.get(self._write_account, force)
+
+    def _refresh_wallet(self) -> dict[str, int]:
+        """Re-read the write account's balances from the API."""
+        return self._ctx.wallets.refresh(self._write_account)
+
+    # ------------------------------------------------------------------
     # Bot contract
     # ------------------------------------------------------------------
 

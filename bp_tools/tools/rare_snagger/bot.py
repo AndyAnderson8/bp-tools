@@ -2,7 +2,6 @@ import sys
 
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
-from bp_tools.core.wallet import WalletCache
 
 from .db import (
     count_items,
@@ -44,26 +43,23 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         self._cycle_count: int = 1
         self._pending_buy: PendingBuy | None = None
 
-        # Wallet cache (created on first use, once the write client is known)
-        self._wallet: WalletCache | None = None
-
     def initialize(self) -> None:
         config_dir = getattr(self._ctx, "config_dir", None)
 
         # Autopopulate cache if empty
         if count_items(config_dir) == 0:
-            self._log("No rare items cached — scanning catalog...")
+            self._log("No rare items cached - scanning catalog...")
             client = self._next_get_client()
             init_rare_cache(client, config_dir=config_dir, log=self._log)
 
         self._rare_item_ids = load_rare_ids(config_dir)
         self._rare_names = load_rare_names(config_dir)
-        # TEMPORARY FALLBACK — local RAP values until API populates average_sales_price
+        # TEMPORARY FALLBACK - local RAP values until API populates average_sales_price
         self._rare_raps = load_rare_raps(config_dir)
         self._log(f"Loaded {len(self._rare_item_ids)} rare items from cache.", True)
 
         # Fetch initial wallet
-        balances = self._wallet_cache().refresh()
+        balances = self._refresh_wallet()
         self._log(
             f"Wallet — {balances.get('credits', 0):,} credits, "
             f"{balances.get('bits', 0):,} bits"
@@ -148,12 +144,6 @@ class SnaggerBot(BotBase[SnaggerConfig]):
                 seller="?",
             )
 
-    def _wallet_cache(self) -> WalletCache:
-        """The account's wallet cache (created on first use)."""
-        if self._wallet is None:
-            self._wallet = WalletCache(self._write_client)
-        return self._wallet
-
     def _verify_listing(self, buy: "PendingBuy") -> tuple[int, int, str] | None:
         """Verify listing still exists and price is valid.
 
@@ -197,10 +187,10 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         seller_name: str,
     ) -> None:
         """Check wallet and attempt the purchase."""
-        wallet = self._wallet_cache().get()
+        wallet = self._get_wallet()
         credits_balance = wallet.get("credits", 0)
         if credits_balance < actual_price:
-            wallet = self._wallet_cache().refresh()
+            wallet = self._refresh_wallet()
             credits_balance = wallet.get("credits", 0)
             if credits_balance < actual_price:
                 self._log(
@@ -226,7 +216,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
                 f" from {seller_name}! {suffix}"
             )
             self._scan_index -= 1
-            self._wallet_cache().refresh()
+            self._refresh_wallet()
         except Exception as exc:
             self._log(f"Buy failed — {buy.item_name}: {exc}")
 

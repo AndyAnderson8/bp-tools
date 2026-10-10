@@ -3,7 +3,6 @@ from typing import Any
 
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
-from bp_tools.core.wallet import WalletCache
 
 from .constants import TICK
 from .models import CurrencyExchangeConfig, ExchangeSideConfig, SideState, TradeSide
@@ -58,13 +57,10 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         self._best_bid: float | None = None
         self._best_ask: float | None = None
 
-        # Wallet cache (created in initialize(), once the write client is known)
-        self._wallet: WalletCache | None = None
-
     def initialize(self) -> None:
         self._log("Starting up — cancelling all open orders", True)
         self._cancel_all_open_orders()
-        balances = self._wallet_cache().refresh()
+        balances = self._refresh_wallet()
         self._log(
             f"Wallet — {balances.get('credits', 0):,} credits, "
             f"{balances.get('bits', 0):,} bits",
@@ -91,7 +87,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 continue
             if bid_placed:
                 time.sleep(1.0)
-            available = self._wallet_cache().get().get(side.label, 0)
+            available = self._get_wallet().get(side.label, 0)
             amount = min(cfg.amount, available)
             if amount > 0:
                 rate = self._compute_rate(side, cfg)
@@ -141,12 +137,6 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    def _wallet_cache(self) -> WalletCache:
-        """The account's wallet cache (created on first use)."""
-        if self._wallet is None:
-            self._wallet = WalletCache(self._write_client)
-        return self._wallet
 
     def _cancel_all_open_orders(self) -> None:
         """Cancel all open currency-exchange orders for the write user."""
@@ -285,7 +275,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         cfg = self._config_for(side)
         assert cfg is not None
         state = self._sides[side]
-        wallet = self._wallet_cache().get()
+        wallet = self._get_wallet()
         available = wallet.get(side.label, 0)
         if available <= 0:
             return

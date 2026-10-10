@@ -2,7 +2,7 @@ import importlib
 import pkgutil
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Type
 
@@ -15,6 +15,7 @@ from bp_tools.core.constants import (
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.utils import log_print as print
 from bp_tools.core.utils import start_live, stop_live
+from bp_tools.core.wallet import WalletRegistry
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,11 +26,16 @@ class RunnerContext:
     :param config: Loaded app config.
     :param clients: API clients keyed by username.
     :param config_dir: Directory containing config.yaml (for DB path).
+    :ivar wallets: Wallet balances shared by all bots (built from *clients*).
     """
 
     config: AppConfig
     clients: dict[str, ApiClient]
     config_dir: Path | None = None
+    wallets: WalletRegistry = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "wallets", WalletRegistry(self.clients))
 
     @property
     def dev_mode(self) -> bool:

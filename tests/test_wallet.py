@@ -3,7 +3,7 @@
 from typing import Any
 from unittest import mock
 
-from bp_tools.core.wallet import WalletCache
+from bp_tools.core.wallet import WalletCache, WalletRegistry
 
 
 def _client(credits: int = 10, bits: int = 20) -> mock.Mock:
@@ -73,3 +73,39 @@ def test_any_currency_key_is_passed_through() -> None:
     client.get_me.return_value = {"data": {"wallets": {"gems": 4}}}
 
     assert WalletCache(client).refresh() == {"gems": 4}
+
+
+def test_registry_shares_balances_between_consumers() -> None:
+    client = mock.Mock()
+    client.get_me.side_effect = [
+        {"data": {"wallets": {"credits": 100}}},
+        {"data": {"wallets": {"credits": 40}}},
+    ]
+    registry = WalletRegistry({"Revolt": client})
+
+    # Bot A reads, then spends and refreshes
+    assert registry.get("Revolt") == {"credits": 100}
+    registry.refresh("Revolt")
+
+    # Bot B, reading later, sees the refreshed balance without its own API call
+    assert registry.balances("Revolt") == {"credits": 40}
+    assert registry.get("Revolt") == {"credits": 40}
+    assert client.get_me.call_count == 2
+
+
+def test_registry_unknown_account_is_empty() -> None:
+    registry = WalletRegistry({})
+
+    assert registry.get("Nobody") == {}
+    assert registry.balances("Nobody") == {}
+
+
+def test_runner_context_builds_a_registry_from_clients() -> None:
+    from bp_tools.core.config import AppConfig
+    from bp_tools.core.runner import RunnerContext
+
+    client = mock.Mock()
+    ctx = RunnerContext(config=AppConfig(users=[], tools={}), clients={"A": client})
+
+    assert isinstance(ctx.wallets, WalletRegistry)
+    client.get_me.assert_not_called()
