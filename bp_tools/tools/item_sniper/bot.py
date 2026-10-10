@@ -4,7 +4,9 @@ import time
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
 
-from .constants import OWNED_CACHE_SECONDS, WALLET_REFRESH_INTERVAL
+from bp_tools.core.wallet import WalletCache
+
+from .constants import OWNED_CACHE_SECONDS
 from .models import ItemSniperConfig, ShopItem, UserSniperConfig
 from .web_session import WebSession
 
@@ -44,10 +46,8 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._loop_iterations: int = 0
         self._newest_rare: str = ""
 
-        # Per-user wallet cache
-        self._wallets: dict[str, dict[str, int]] = {}
-        self._wallet_refresh_times: dict[str, float] = {}
-        self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
+        # Per-user wallet caches (created lazily from the account's client)
+        self._wallet_caches: dict[str, WalletCache] = {}
 
         # Per-user web sessions (form purchases), created in initialize()
         self._web_sessions: dict[str, WebSession] = {}
@@ -258,35 +258,43 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         return None
 
+    def _wallet_cache(self, username: str) -> WalletCache | None:
+        """Wallet cache for *username*, or None if the account has no client."""
+        if username not in self._wallet_caches:
+            client = self._ctx.clients.get(username)
+            if client is None:
+                return None
+            self._wallet_caches[username] = WalletCache(client)
+        return self._wallet_caches[username]
+
     def _refresh_user_wallet(self, username: str) -> dict[str, int]:
-        """Fetch fresh wallet for a specific user. Keeps the cached wallet on error."""
-        client = self._ctx.clients.get(username)
-        if client is None:
+        """Re-read a user's wallet. Keeps the last known balances on error."""
+        cache = self._wallet_cache(username)
+        if cache is None:
             return {}
         try:
-            me = client.get_me()
+            return cache.refresh()
         except Exception as exc:
             self._log(f"[{username}] Wallet refresh failed — {exc}")
-            return self._wallets.get(username, {})
-        wallet = me.get("data", {}).get("wallets", {"credits": 0, "bits": 0})
-        self._wallets[username] = wallet
-        self._wallet_refresh_times[username] = time.time()
-        return wallet
+            return cache.balances
 
     def _get_cached_user_wallet(
         self, username: str, force: bool = False
     ) -> dict[str, int]:
-        elapsed = time.time() - self._wallet_refresh_times.get(username, 0.0)
-        if (
-            force
-            or elapsed > self._WALLET_REFRESH_INTERVAL
-            or username not in self._wallets
-        ):
+        if force:
             return self._refresh_user_wallet(username)
-        return self._wallets.get(username, {})
+        cache = self._wallet_cache(username)
+        if cache is None:
+            return {}
+        try:
+            return cache.get()
+        except Exception as exc:
+            self._log(f"[{username}] Wallet refresh failed — {exc}")
+            return cache.balances
 
     def _log_wallets(self) -> None:
-        for username, wallet in self._wallets.items():
+        for username, cache in self._wallet_caches.items():
+            wallet = cache.balances
             caps = self.config.caps_for(username)
             credits = wallet.get("credits", 0)
             bits = wallet.get("bits", 0)

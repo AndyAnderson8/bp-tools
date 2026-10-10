@@ -3,8 +3,9 @@ from typing import Any
 
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
+from bp_tools.core.wallet import WalletCache
 
-from .constants import TICK, WALLET_REFRESH_INTERVAL
+from .constants import TICK
 from .models import CurrencyExchangeConfig, ExchangeSideConfig, SideState, TradeSide
 
 
@@ -57,18 +58,16 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         self._best_bid: float | None = None
         self._best_ask: float | None = None
 
-        # Wallet cache
-        self._wallet: dict[str, int] = {}
-        self._last_wallet_refresh: float = 0.0
-        self._WALLET_REFRESH_INTERVAL = WALLET_REFRESH_INTERVAL
+        # Wallet cache (created in initialize(), once the write client is known)
+        self._wallet: WalletCache | None = None
 
     def initialize(self) -> None:
         self._log("Starting up — cancelling all open orders", True)
         self._cancel_all_open_orders()
-        self._refresh_wallet()
+        balances = self._wallet_cache().refresh()
         self._log(
-            f"Wallet — {self._wallet.get('credits', 0):,} credits, "
-            f"{self._wallet.get('bits', 0):,} bits",
+            f"Wallet — {balances.get('credits', 0):,} credits, "
+            f"{balances.get('bits', 0):,} bits",
         )
 
         # Fetch initial orderbook so first cycle has data
@@ -92,7 +91,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 continue
             if bid_placed:
                 time.sleep(1.0)
-            available = self._wallet.get(side.label, 0)
+            available = self._wallet_cache().get().get(side.label, 0)
             amount = min(cfg.amount, available)
             if amount > 0:
                 rate = self._compute_rate(side, cfg)
@@ -135,25 +134,18 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         levels = self._levels(side)
         limit = cfg.max_rate
         if side is TradeSide.BID:
-            return [l for l in levels if l["rate"] < limit]
+            return [lvl for lvl in levels if lvl["rate"] < limit]
         else:
-            return [l for l in levels if l["rate"] > limit]
+            return [lvl for lvl in levels if lvl["rate"] > limit]
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    def _refresh_wallet(self) -> dict[str, int]:
-        """Fetch fresh wallet from /me."""
-        me = self._write_client.get_me()
-        self._wallet = me.get("data", {}).get("wallets", {"credits": 0, "bits": 0})
-        self._last_wallet_refresh = time.time()
-        return self._wallet
-
-    def _get_cached_wallet(self, force: bool = False) -> dict[str, int]:
-        elapsed = time.time() - self._last_wallet_refresh
-        if force or elapsed > self._WALLET_REFRESH_INTERVAL:
-            return self._refresh_wallet()
+    def _wallet_cache(self) -> WalletCache:
+        """The account's wallet cache (created on first use)."""
+        if self._wallet is None:
+            self._wallet = WalletCache(self._write_client)
         return self._wallet
 
     def _cancel_all_open_orders(self) -> None:
@@ -293,7 +285,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         cfg = self._config_for(side)
         assert cfg is not None
         state = self._sides[side]
-        wallet = self._get_cached_wallet()
+        wallet = self._wallet_cache().get()
         available = wallet.get(side.label, 0)
         if available <= 0:
             return
