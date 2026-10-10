@@ -46,11 +46,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Only run these tools (by name). Omit to run all enabled tools.",
     )
     parser.add_argument(
-        "--ui",
-        action="store_true",
-        help="Show the control panel: toggle bots on/off and see their status.",
-    )
-    parser.add_argument(
         "--tui",
         action="store_true",
         help="Run the full-screen terminal UI (needs the 'tui' extra: textual).",
@@ -69,10 +64,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.sleep <= 0:
         print("--sleep must be > 0", warning=True)
-        return 2
-
-    if args.tui and args.ui:
-        print("Use either --tui or --ui, not both.", warning=True)
         return 2
 
     if args.tui:
@@ -112,7 +103,6 @@ def main(argv: list[str] | None = None) -> int:
         sleep_seconds=args.sleep,
         dry_run=args.dry_run,
         only_tools=args.tools,
-        ui=args.ui,
     )
 
 

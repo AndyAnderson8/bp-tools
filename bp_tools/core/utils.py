@@ -17,7 +17,6 @@ from rich.text import Text
 
 _console = Console(highlight=False)
 _status_lines: dict[str, str] = {}
-_panel: RenderableType | None = None
 _live: Live | None = None
 _log_sink: Callable[[str, bool], None] | None = None
 
@@ -53,10 +52,7 @@ def _gradient_text(text: str, warning: bool = False) -> Text:
 
 def _build_status_display() -> Group:
     """Build the Rich renderable for the status dashboard."""
-    parts: list[RenderableType] = []
-    if _panel is not None:
-        parts.append(_panel)
-    parts += [Text(""), _gradient_text("Current status(es):")]
+    parts: list[RenderableType] = [Text(""), _gradient_text("Current status(es):")]
     for key, line in _status_lines.items():
         if not line:
             continue
@@ -104,14 +100,6 @@ def set_status(source: str, text: str) -> None:
 def get_status(source: str) -> str:
     """Return the current status line for *source* ('' if none)."""
     return _status_lines.get(source, "")
-
-
-def set_panel(renderable: RenderableType | None) -> None:
-    """Set a renderable shown above the status lines (None clears it)."""
-    global _panel
-    _panel = renderable
-    if _live is not None:
-        _live.update(_build_status_display())
 
 
 def set_log_sink(sink: Callable[[str, bool], None] | None) -> None:
