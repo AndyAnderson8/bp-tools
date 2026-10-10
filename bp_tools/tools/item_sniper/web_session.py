@@ -7,6 +7,7 @@ API ``POST /items/{id}/buy``.
 """
 
 import re
+import time
 from typing import Optional
 
 from requests import Response, Session
@@ -15,6 +16,9 @@ from bp_tools.core.utils import log_print as print
 
 # BrickPlanet web base (not the API base)
 _WEB_BASE = "https://www.brickplanet.com"
+
+# Maximum session lifetime before forced re-login (24 hours in seconds)
+SESSION_LIFETIME_SECONDS = 86400
 
 # Regex to extract the CSRF _token from an HTML page's hidden input
 _TOKEN_RE = re.compile(
@@ -30,14 +34,17 @@ class WebSession:
     Logs in with username/password, maintains session cookies
     (``brickplanet_session``, ``XSRF-TOKEN``), and exposes a
     :meth:`buy_item` method that submits the purchase form.
+    Automatically kills and re-establishes session every 24 hours.
     """
 
     def __init__(self, username: str, password: str) -> None:
         self.username = username
-        self._session = Session()
+        self._password = password
+        self._session: Session = Session()
         self._token: str = ""
+        self._created_at: float = 0.0
 
-        self._login(username, password)
+        self._login()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -49,13 +56,17 @@ class WebSession:
         if match:
             self._token = match.group(1)
 
-    def _login(self, username: str, password: str) -> None:
+    def _login(self) -> None:
         """
         Authenticate via the web login form.
 
         1. GET /login — seeds cookies and grabs the initial CSRF token.
         2. POST /login — submits credentials with the CSRF token.
         """
+        self._session.close()
+        self._session = Session()
+        self._token = ""
+
         # Step 1: GET the login page to seed cookies + grab _token
         login_page = self._session.get(f"{_WEB_BASE}/login")
         login_page.raise_for_status()
@@ -63,7 +74,7 @@ class WebSession:
 
         if not self._token:
             raise ConnectionError(
-                f"[{username}] Could not extract CSRF token from login page."
+                f"[{self.username}] Could not extract CSRF token from login page."
             )
 
         # Step 2: POST credentials
@@ -71,8 +82,8 @@ class WebSession:
             f"{_WEB_BASE}/login",
             data={
                 "_token": self._token,
-                "username": username,
-                "password": password,
+                "username": self.username,
+                "password": self._password,
             },
             allow_redirects=True,
         )
@@ -84,10 +95,22 @@ class WebSession:
         # Verify login succeeded — the page title should be "Home | BrickPlanet"
         if "Home | BrickPlanet" not in response.text:
             raise ConnectionRefusedError(
-                f"[{username}] Web login failed — check username/password."
+                f"[{self.username}] Web login failed — check username/password."
             )
 
-        print(f"[WebSession] Logged in as {username}")
+        self._created_at = time.time()
+        print(f"[WebSession] Logged in successfully as {self.username}")
+
+    def ensure_fresh_session(self) -> None:
+        """
+        Re-login if the session is older than 24 hours.
+        """
+        if time.time() - self._created_at >= SESSION_LIFETIME_SECONDS:
+            print(
+                f"[WebSession] [{self.username}] Session reached 24h limit — "
+                "re-logging in..."
+            )
+            self._login()
 
     # ------------------------------------------------------------------
     # Public API
@@ -155,10 +178,8 @@ class WebSession:
         """
         Re-login to refresh an expired session.
 
-        :param password: Password to re-login with. Required.
+        :param password: Optional password if updating.
         """
-        if password is None:
-            raise ValueError("Password required to refresh web session.")
-        self._session = Session()
-        self._token = ""
-        self._login(self.username, password)
+        if password is not None:
+            self._password = password
+        self._login()

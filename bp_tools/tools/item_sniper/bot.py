@@ -150,8 +150,17 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._stock_tracker[item.item_id] = item.remaining_stock
         self._on_sale_tracker[item.item_id] = item.on_sale
 
+    def _check_web_sessions(self) -> None:
+        """Re-login any web session older than 24 hours."""
+        for username, web_session in self._web_sessions.items():
+            try:
+                web_session.ensure_fresh_session()
+            except Exception as exc:
+                self._log(f"[{username}] 24h session refresh failed — {exc}")
+
     def update(self) -> None:
         self._items_to_buy.clear()
+        self._check_web_sessions()
 
         client = self._next_get_client()
         rare_flag, label = self._resolve_poll_mode()
