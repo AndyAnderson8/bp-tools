@@ -8,7 +8,7 @@ API ``POST /items/{id}/buy``.
 
 import re
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from requests import Response, Session
 
@@ -27,6 +27,14 @@ _TOKEN_RE = re.compile(
 )
 
 
+class WebSessionError(RuntimeError):
+    """Session could not be used (login failed, or still in backoff)."""
+
+
+class WebRateLimited(WebSessionError):
+    """The site answered 429; requests are paused until ``retry_at``."""
+
+
 class WebSession:
     """
     Authenticated browser session for BrickPlanet.
@@ -35,7 +43,15 @@ class WebSession:
     (``brickplanet_session``, ``XSRF-TOKEN``), and exposes a
     :meth:`buy_item` method that submits the purchase form.
     Automatically kills and re-establishes session every 24 hours.
+    Failed logins and 429 responses back off exponentially instead of
+    retrying on every cycle.
     """
+
+    # Failed re-login backoff: 30s, 60s, 120s ... capped at 10 minutes
+    _BACKOFF_BASE_SECONDS = 30.0
+    _BACKOFF_MAX_SECONDS = 600.0
+    # Used when a 429 has no usable Retry-After header
+    _DEFAULT_RETRY_AFTER_SECONDS = 60.0
 
     def __init__(self, username: str, password: str) -> None:
         self.username = username
@@ -43,6 +59,8 @@ class WebSession:
         self._session: Session = Session()
         self._token: str = ""
         self._created_at: float = 0.0
+        self._retry_at: float = 0.0
+        self._failures: int = 0
 
         self._login()
 
@@ -56,6 +74,27 @@ class WebSession:
         if match:
             self._token = match.group(1)
 
+    def _send(self, method: str, url: str, **kwargs: Any) -> Response:
+        """
+        Send a request on the session, honouring 429 responses.
+
+        On 429 the session is paused until ``Retry-After`` has elapsed and
+        :class:`WebRateLimited` is raised.
+        """
+        response = self._session.request(method, url, **kwargs)
+        if response.status_code == 429:
+            try:
+                retry_after = float(response.headers.get("Retry-After", ""))
+            except ValueError:
+                retry_after = self._DEFAULT_RETRY_AFTER_SECONDS
+            self._retry_at = max(self._retry_at, time.time() + retry_after)
+            raise WebRateLimited(
+                f"[{self.username}] Rate limited by site (429), "
+                f"pausing {retry_after:.0f}s."
+            )
+        response.raise_for_status()
+        return response
+
     def _login(self) -> None:
         """
         Authenticate via the web login form.
@@ -68,8 +107,7 @@ class WebSession:
         self._token = ""
 
         # Step 1: GET the login page to seed cookies + grab _token
-        login_page = self._session.get(f"{_WEB_BASE}/login")
-        login_page.raise_for_status()
+        login_page = self._send("GET", f"{_WEB_BASE}/login")
         self._extract_token(login_page)
 
         if not self._token:
@@ -78,7 +116,8 @@ class WebSession:
             )
 
         # Step 2: POST credentials
-        response = self._session.post(
+        response = self._send(
+            "POST",
             f"{_WEB_BASE}/login",
             data={
                 "_token": self._token,
@@ -87,7 +126,6 @@ class WebSession:
             },
             allow_redirects=True,
         )
-        response.raise_for_status()
 
         # Refresh the token from the redirected page
         self._extract_token(response)
@@ -99,17 +137,36 @@ class WebSession:
             )
 
         self._created_at = time.time()
+        self._failures = 0
+        self._retry_at = 0.0
+
+    def _is_stale(self) -> bool:
+        return time.time() - self._created_at >= SESSION_LIFETIME_SECONDS
 
     def ensure_fresh_session(self) -> None:
         """
         Re-login if the session is older than 24 hours.
+
+        While in backoff this returns without trying; :meth:`buy_item`
+        refuses to submit on a stale session.
         """
-        if time.time() - self._created_at >= SESSION_LIFETIME_SECONDS:
-            print(
-                f"[WebSession] [{self.username}] Session reached 24h limit — "
-                "re-logging in..."
-            )
+        if not self._is_stale() or time.time() < self._retry_at:
+            return
+
+        print(
+            f"[WebSession] [{self.username}] Session reached 24h limit — "
+            "re-logging in..."
+        )
+        try:
             self._login()
+        except Exception:
+            self._failures += 1
+            delay = min(
+                self._BACKOFF_BASE_SECONDS * 2 ** (self._failures - 1),
+                self._BACKOFF_MAX_SECONDS,
+            )
+            self._retry_at = max(self._retry_at, time.time() + delay)
+            raise
 
     # ------------------------------------------------------------------
     # Public API
@@ -129,16 +186,29 @@ class WebSession:
         :param item_id: The shop item ID to purchase.
         :param currency: ``"credits"`` or ``"bits"``.
         :returns: Dict with ``success`` bool and ``message`` str.
+        :raises WebSessionError: If the session is stale and cannot be renewed yet.
+        :raises WebRateLimited: If the site returned 429.
         """
+        if time.time() < self._retry_at:
+            raise WebSessionError(
+                f"[{self.username}] Web session paused until backoff ends."
+            )
+        if self._is_stale():
+            self.ensure_fresh_session()
+            if self._is_stale():
+                raise WebSessionError(
+                    f"[{self.username}] Session expired and re-login is pending."
+                )
+
         # Map currency name to the numeric type the form expects
         currency_type = 1 if currency == "credits" else 2
 
         # Refresh the CSRF token by visiting the item page first
-        item_page = self._session.get(f"{_WEB_BASE}/shop/{item_id}")
-        item_page.raise_for_status()
+        item_page = self._send("GET", f"{_WEB_BASE}/shop/{item_id}")
         self._extract_token(item_page)
 
-        response = self._session.post(
+        response = self._send(
+            "POST",
             f"{_WEB_BASE}/shop/{item_id}/buy-item",
             data={
                 "_token": self._token,
@@ -147,7 +217,6 @@ class WebSession:
             },
             allow_redirects=True,
         )
-        response.raise_for_status()
 
         # Refresh CSRF token for next request
         self._extract_token(response)
