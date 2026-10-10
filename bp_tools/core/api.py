@@ -11,8 +11,8 @@ from bp_tools.core.constants import BASE_URL, RATE_LIMITS
 from bp_tools.core.utils import log_print as print
 from bp_tools.core.utils import sleep_with_status
 
-# Attempts per request when the server answers 429
-_MAX_ATTEMPTS = 3
+# After a 429, no requests are sent for at least this long (seconds).
+RATE_LIMIT_COOLDOWN_SECONDS = 300.0
 
 
 class ApiError(RuntimeError):
@@ -81,6 +81,7 @@ class ApiClient:
         # Rate limiting
         rl = rate_limits or RATE_LIMITS
         tiers_raw = rl.get("tiers", {})
+        self._paused_until: float = 0.0
         self._limiters: dict[str, RateLimiter] = {}
         for tier_name, tier_cfg in tiers_raw.items():
             self._limiters[tier_name] = RateLimiter(
@@ -120,15 +121,17 @@ class ApiClient:
         """
         Send a rate-limited request and return the parsed JSON body.
 
-        Retries up to three times on a server-side 429. Any other non-2xx
-        response raises ``RuntimeError`` with the status and body.
+        A 429 pauses every request from this client for the cooldown
+        (at least five minutes): retrying a 429 extends the site's throttle.
+        Any other non-2xx response raises :class:`ApiError`.
         """
+        self._raise_if_paused(path)
         url = f"{BASE_URL}{path}"
-        for _ in range(_MAX_ATTEMPTS):
-            self._rate_limit(method, path)
-            response = self._session.request(method, url, params=params, json=json_body)
-            if not self._handle_429(response):
-                break
+        self._rate_limit(method, path)
+        response = self._session.request(method, url, params=params, json=json_body)
+        if response.status_code == 429:
+            self._pause(response)
+            raise ApiError(429, path, f"rate limited; paused {self._paused_for():.0f}s")
         if not response.ok:
             try:
                 detail = response.json()
@@ -137,17 +140,23 @@ class ApiClient:
             raise ApiError(response.status_code, path, detail)
         return response.json()
 
-    def _handle_429(self, response: Response) -> bool:
-        """Sleep on server-side 429 as a fallback. Returns True if retryable."""
-        if response.status_code == 429:
-            retry_after = int(response.headers.get("Retry-After", "5")) + 1
-            sleep_with_status(
-                "_rate_limit",
-                f"429 Too Many Requests — sleeping {retry_after}s",
-                retry_after,
-            )
-            return True
-        return False
+    def _paused_for(self) -> float:
+        return max(0.0, self._paused_until - time.monotonic())
+
+    def _pause(self, response: Response) -> None:
+        """Start a cooldown after a server-side 429."""
+        try:
+            retry_after = float(response.headers.get("Retry-After", ""))
+        except ValueError:
+            retry_after = 0.0
+        cooldown = max(retry_after, RATE_LIMIT_COOLDOWN_SECONDS)
+        self._paused_until = max(self._paused_until, time.monotonic() + cooldown)
+
+    def _raise_if_paused(self, path: str) -> None:
+        """Fail fast, without a network call, while a cooldown is active."""
+        remaining = self._paused_for()
+        if remaining > 0:
+            raise ApiError(429, path, f"paused after rate limit, {remaining:.0f}s left")
 
     def get(
         self,

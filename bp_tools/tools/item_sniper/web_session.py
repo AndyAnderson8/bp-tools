@@ -51,7 +51,7 @@ class WebSession:
     _BACKOFF_BASE_SECONDS = 30.0
     _BACKOFF_MAX_SECONDS = 600.0
     # Used when a 429 has no usable Retry-After header
-    _DEFAULT_RETRY_AFTER_SECONDS = 60.0
+    _DEFAULT_RETRY_AFTER_SECONDS = 300.0
 
     def __init__(
         self,
