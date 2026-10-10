@@ -126,3 +126,97 @@ def test_dry_run_missing_id_does_not_hold(bot) -> None:
 
     assert b._sides[TradeSide.ASK].held is False
     assert any("dry run" in m for m in b._logs)
+
+
+@pytest.fixture()
+def repost_bot(bot, monkeypatch: pytest.MonkeyPatch):
+    b, client = bot
+    monkeypatch.setattr(tc_mod.time, "sleep", lambda _s: None)
+    b._sides[TradeSide.BID].order_id = 500
+    b._sides[TradeSide.BID].rate = 35.0
+    b._sides[TradeSide.BID].amount = 100
+    return b, client
+
+
+def test_repost_cancels_and_replaces_with_remaining_amount(repost_bot) -> None:
+    b, client = repost_bot
+    client.get_my_orders.return_value = {"data": [{"id": 500, "remaining_amount": 60}]}
+    client.place_order.return_value = {"data": {"id": 501}}
+
+    b._cancel_and_repost(TradeSide.BID, 36.0, "Overtaken")
+
+    client.cancel_order.assert_called_once_with(500)
+    client.place_order.assert_called_once_with(
+        trade_type="bits-to-credits",
+        order_type="limit",
+        amount=60,
+        limit_rate=36.0,
+    )
+    assert b._sides[TradeSide.BID].order_id == 501
+    assert b._sides[TradeSide.BID].rate == 36.0
+
+
+def test_failed_cancel_keeps_existing_order_state(repost_bot) -> None:
+    b, client = repost_bot
+    client.get_my_orders.return_value = {"data": [{"id": 500, "remaining_amount": 60}]}
+    client.cancel_order.side_effect = RuntimeError("nope")
+
+    b._cancel_and_repost(TradeSide.BID, 36.0, "Overtaken")
+
+    client.place_order.assert_not_called()
+    assert b._sides[TradeSide.BID].order_id == 500
+
+
+def test_fully_filled_order_is_not_reposted(repost_bot) -> None:
+    b, client = repost_bot
+    client.get_my_orders.return_value = {"data": [{"id": 500, "remaining_amount": 0}]}
+
+    b._cancel_and_repost(TradeSide.BID, 36.0, "Overtaken")
+
+    client.place_order.assert_not_called()
+    assert b._sides[TradeSide.BID].order_id is None
+    assert any("filled" in m for m in b._logs)
+
+
+def test_unreadable_remaining_amount_is_reported_accurately(repost_bot) -> None:
+    b, client = repost_bot
+    client.get_my_orders.side_effect = RuntimeError("down")
+
+    b._cancel_and_repost(TradeSide.BID, 36.0, "Overtaken")
+
+    assert b._sides[TradeSide.BID].order_id is None
+    assert any("Could not read" in m for m in b._logs)
+    assert not any("Outside limit" in m for m in b._logs)
+
+
+def test_monitor_reposts_when_overtaken(repost_bot, monkeypatch) -> None:
+    b, client = repost_bot
+    b._bid_levels = [{"rate": 38.0, "amount": 1}]
+    called: list[tuple] = []
+    monkeypatch.setattr(b, "_cancel_and_repost", lambda *a: called.append(a))
+
+    acted = b._monitor_side(TradeSide.BID)
+
+    assert acted is True
+    assert called and called[0][0] is TradeSide.BID
+
+
+def test_monitor_leaves_order_alone_when_still_best(repost_bot, monkeypatch) -> None:
+    b, _ = repost_bot
+    # Our 35.00 is top; the next level 34.99 means the ideal rate is 35.00 again.
+    b._bid_levels = [{"rate": 35.0, "amount": 1}, {"rate": 34.99, "amount": 1}]
+    called: list[tuple] = []
+    monkeypatch.setattr(b, "_cancel_and_repost", lambda *a: called.append(a))
+
+    assert b._monitor_side(TradeSide.BID) is False
+    assert called == []
+
+
+def test_monitor_retries_when_side_has_no_order(bot, monkeypatch) -> None:
+    b, _ = bot
+    retried: list[TradeSide] = []
+    monkeypatch.setattr(b, "_retry", lambda side: retried.append(side))
+
+    b._monitor_side(TradeSide.BID)
+
+    assert retried == [TradeSide.BID]

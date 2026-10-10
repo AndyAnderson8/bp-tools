@@ -1,6 +1,7 @@
 """Runner: bot ticking, enable/disable, and config-driven bot building."""
 
 from pathlib import Path
+from unittest import mock
 
 from bp_tools.core.runner import build_bots, tick_bot
 
@@ -81,3 +82,43 @@ def test_run_bots_stops_when_asked() -> None:
     run_bots([bot], should_stop=should_stop, sleep_seconds=0)  # type: ignore[list-item]
 
     assert bot.runs == 3
+
+
+def test_start_with_no_bots_exits_cleanly(monkeypatch, tmp_path: Path) -> None:
+    from bp_tools.core import runner
+
+    monkeypatch.setattr(runner, "build_bots", lambda *a, **k: [])
+    loop = mock.Mock()
+    monkeypatch.setattr(runner, "_run_loop", loop)
+
+    assert runner.start(tmp_path / "config.yaml") == 0
+    loop.assert_not_called()
+
+
+def test_start_initializes_then_runs_loop(monkeypatch, tmp_path: Path) -> None:
+    from bp_tools.core import runner
+
+    bot = CountingBot()
+    order: list[str] = []
+    monkeypatch.setattr(runner, "build_bots", lambda *a, **k: [bot])
+    monkeypatch.setattr(runner, "initialize_bots", lambda bots: order.append("init"))
+    monkeypatch.setattr(
+        runner, "_run_loop", lambda bots, sleep: order.append("loop") or 0
+    )
+
+    assert runner.start(tmp_path / "config.yaml", sleep_seconds=0.5) == 0
+    assert order == ["init", "loop"]
+
+
+def test_run_loop_stops_on_ctrl_c(monkeypatch, capsys) -> None:
+    from bp_tools.core import runner
+
+    monkeypatch.setattr(runner, "start_live", lambda: None)
+    monkeypatch.setattr(runner, "stop_live", lambda: None)
+
+    def interrupt(*_a, **_k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runner, "run_bots", interrupt)
+
+    assert runner._run_loop([], 0.1) == 0

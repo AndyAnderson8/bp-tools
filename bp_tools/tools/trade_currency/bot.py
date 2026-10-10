@@ -263,6 +263,11 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         else:
             if remaining == 0:
                 self._log(f"{side.label.capitalize()} order filled!")
+            elif remaining is None:
+                self._log(
+                    f"Could not read remaining {side.label} amount; "
+                    "will re-place on the next cycle."
+                )
             else:
                 self._log(f"Outside limit — {side.label} rate out of range.")
             state.order_id = None
