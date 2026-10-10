@@ -1,5 +1,6 @@
 import time
 
+from bp_tools.core.api import ApiError
 from bp_tools.core.contracts import BotBase
 from bp_tools.core.runner import RunnerContext
 
@@ -112,7 +113,6 @@ class OffererBot(BotBase[OffererConfig]):
             self._last_offer_time = time.monotonic()
             self._log(f"Offered {offer_amount:,} credits" f" on {name} (ID: {item_id})")
         except Exception as exc:
-            err_msg = str(exc)
             # Silently skip 422s (duplicate, insufficient, etc.)
-            if "422" not in err_msg:
+            if not (isinstance(exc, ApiError) and exc.status_code == 422):
                 self._log(f"Error offering on {name}" f" (ID: {item_id}): {exc}")

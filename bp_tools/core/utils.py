@@ -1,5 +1,6 @@
 import sys
-from typing import Callable
+import time
+from typing import Callable, Iterator
 
 from rich.console import Console, Group, RenderableType
 from rich.live import Live
@@ -36,16 +37,24 @@ _GRADIENT_NORMAL = ((0, 255, 255), (255, 95, 255))
 _GRADIENT_WARNING = ((255, 200, 0), (255, 100, 0))
 
 
-def _gradient_text(text: str, warning: bool = False) -> Text:
-    """Build a Rich Text object with gradient colouring."""
+def _gradient_chars(
+    text: str, warning: bool = False
+) -> Iterator[tuple[str, int, int, int]]:
+    """Yield `(char, r, g, b)` for *text* (indented) along the gradient."""
     start, end = _GRADIENT_WARNING if warning else _GRADIENT_NORMAL
     indented = "    " + text
-    rich_text = Text()
     n = max(len(indented) - 1, 1)
     for i, char in enumerate(indented):
         r = int(start[0] + (end[0] - start[0]) * i / n)
         g = int(start[1] + (end[1] - start[1]) * i / n)
         b = int(start[2] + (end[2] - start[2]) * i / n)
+        yield char, r, g, b
+
+
+def _gradient_text(text: str, warning: bool = False) -> Text:
+    """Build a Rich Text object with gradient colouring."""
+    rich_text = Text()
+    for char, r, g, b in _gradient_chars(text, warning):
         rich_text.append(char, style=f"rgb({r},{g},{b})")
     return rich_text
 
@@ -102,6 +111,15 @@ def get_status(source: str) -> str:
     return _status_lines.get(source, "")
 
 
+def sleep_with_status(source: str, text: str, seconds: float) -> None:
+    """Show *text* on the *source* status line while sleeping for *seconds*."""
+    set_status(source, text)
+    try:
+        time.sleep(seconds)
+    finally:
+        set_status(source, "")
+
+
 def set_log_sink(sink: Callable[[str, bool], None] | None) -> None:
     """
     Route log messages to *sink* instead of the console (None restores it).
@@ -134,13 +152,7 @@ def log_print(
 
 def _gradient_print_raw(text: str, warning: bool = False) -> None:
     """Write gradient text directly to stdout (used before Live starts)."""
-    start, end = _GRADIENT_WARNING if warning else _GRADIENT_NORMAL
-    indented = "    " + text
-    n = max(len(indented) - 1, 1)
-    for i, char in enumerate(indented):
-        r = int(start[0] + (end[0] - start[0]) * i / n)
-        g = int(start[1] + (end[1] - start[1]) * i / n)
-        b = int(start[2] + (end[2] - start[2]) * i / n)
+    for char, r, g, b in _gradient_chars(text, warning):
         sys.stdout.write(f"\033[38;2;{r};{g};{b}m{char}\033[0m")
     sys.stdout.write("\n")
     sys.stdout.flush()
