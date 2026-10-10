@@ -145,6 +145,7 @@ def init_rare_cache(
     :param log: Optional callback ``(msg, overwrite)`` for progress.
     :returns: Total number of rare items in cache after scan.
     """
+
     def _status(msg: str, overwrite: bool = False) -> None:
         if log is not None:
             log(msg, overwrite)

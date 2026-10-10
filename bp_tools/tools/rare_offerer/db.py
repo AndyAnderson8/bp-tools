@@ -129,6 +129,7 @@ def init_rare_cache(
     """
     One-time full scan: paginate all rare items and cache them.
     """
+
     def _status(msg: str, overwrite: bool = False) -> None:
         if log is not None:
             log(msg, overwrite)
