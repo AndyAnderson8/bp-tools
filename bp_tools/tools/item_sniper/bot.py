@@ -107,7 +107,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             if not isinstance(data, list):
                 continue
 
-            items = [ShopItem.from_api(item) for item in data]
+            items = self._parse_items(data)
             items = [item for item in items if item.creator_id == 1]
 
             for item in items:
@@ -155,6 +155,16 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         self._stock_tracker[item.item_id] = item.remaining_stock
         self._on_sale_tracker[item.item_id] = item.on_sale
 
+    def _parse_items(self, data: list) -> list[ShopItem]:
+        """Parse API item payloads, logging and skipping malformed entries."""
+        items: list[ShopItem] = []
+        for raw in data:
+            try:
+                items.append(ShopItem.from_api(raw))
+            except Exception as exc:
+                self._log(f"Skipping malformed item — {exc}")
+        return items
+
     def _check_web_sessions(self) -> None:
         """Re-login any web session older than 24 hours."""
         for username, web_session in self._web_sessions.items():
@@ -195,7 +205,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             self._loop_iterations += 1
             return
 
-        items = [ShopItem.from_api(item) for item in data]
+        items = self._parse_items(data)
         items = [item for item in items if item.creator_id == 1]
 
         for item in items:
@@ -245,11 +255,15 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         return None
 
     def _refresh_user_wallet(self, username: str) -> dict[str, int]:
-        """Fetch fresh wallet for a specific user."""
+        """Fetch fresh wallet for a specific user. Keeps the cached wallet on error."""
         client = self._ctx.clients.get(username)
         if client is None:
             return {}
-        me = client.get_me()
+        try:
+            me = client.get_me()
+        except Exception as exc:
+            self._log(f"[{username}] Wallet refresh failed — {exc}")
+            return self._wallets.get(username, {})
         wallet = me.get("data", {}).get("wallets", {"credits": 0, "bits": 0})
         self._wallets[username] = wallet
         self._wallet_refresh_times[username] = time.time()
@@ -347,6 +361,9 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         for item in self._items_to_buy:
             self._log(f"New/restocked item — {item} (stock: {item.remaining_stock})")
             for user_cfg in self.config.users:
-                self._buy_for_user(item, user_cfg)
+                try:
+                    self._buy_for_user(item, user_cfg)
+                except Exception as exc:
+                    self._log(f"[{user_cfg.username}] Buy step failed — {exc}")
 
         self._items_to_buy.clear()
