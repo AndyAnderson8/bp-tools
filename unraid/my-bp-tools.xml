@@ -15,7 +15,7 @@
   <Category>Tools: Productivity:</Category>
   <WebUI/>
   <TemplateURL/>
-  <Icon>https://raw.githubusercontent.com/AndyAnderson8/bp-tools/dev/assets/logo-256.png?v=20261024-2</Icon>
+  <Icon>https://raw.githubusercontent.com/AndyAnderson8/bp-tools/dev/assets/logo.png?v=20261024-2</Icon>
   <ExtraParams>--restart=unless-stopped</ExtraParams>
   <PostArgs/>
   <CPUset/>
