@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>bp-tools</Name>
+  <Repository>ghcr.io/andyanderson8/bp-tools:dev</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <MyMAC/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/AndyAnderson8/bp-tools</Support>
+  <Project>https://github.com/AndyAnderson8/bp-tools</Project>
+  <ReadMe>https://github.com/AndyAnderson8/bp-tools#docker--unraid</ReadMe>
+  <Overview>Runs the bp-tools CLI using its bundled application code. Configuration, caches, and sessions are stored under /config.</Overview>
+  <Category>Tools: Productivity:</Category>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon>https://raw.githubusercontent.com/AndyAnderson8/bp-tools/dev/assets/logo-256.png?v=20261024</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled>1783459876</DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Appdata" Target="/config" Default="" Mode="rw" Description="Config file, bot caches, and trusted-device sessions" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/bp-tools</Config>
+  <TailscaleStateDir/>
+</Container>
