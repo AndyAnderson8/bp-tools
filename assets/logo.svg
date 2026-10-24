@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="bp-tools logo">
+  <title>bp-tools</title>
+  <rect width="512" height="512" rx="112" fill="#16181F"/>
+  <g transform="translate(256.0 261.1) rotate(-24)"><path d="M-212,0 A212,66 0 0 1 212,0" fill="none" stroke="#C86A00" stroke-width="21"/></g>
+  <polygon points="96.7,208.2 256.0,300.2 256.0,406.0 96.7,314.0" fill="#CBD0D8"/>
+  <polygon points="415.3,208.2 256.0,300.2 256.0,406.0 415.3,314.0" fill="#9CA3AF"/>
+  <polygon points="256.0,116.2 415.3,208.2 256.0,300.2 96.7,208.2" fill="#F1F3F6"/>
+  
+    <path d="M210.9,162.2 L210.9,138.3 L301.1,138.3 L301.1,162.2 A45.1,26.0 0 0 1 210.9,162.2 Z" fill="#CBD0D8"/>
+    <ellipse cx="256.0" cy="138.3" rx="45.1" ry="26.0" fill="#F1F3F6"/>
+    <path d="M131.3,208.2 L131.3,184.3 L221.4,184.3 L221.4,208.2 A45.1,26.0 0 0 1 131.3,208.2 Z" fill="#CBD0D8"/>
+    <ellipse cx="176.3" cy="184.3" rx="45.1" ry="26.0" fill="#F1F3F6"/>
+    <path d="M290.6,208.2 L290.6,184.3 L380.7,184.3 L380.7,208.2 A45.1,26.0 0 0 1 290.6,208.2 Z" fill="#CBD0D8"/>
+    <ellipse cx="335.7" cy="184.3" rx="45.1" ry="26.0" fill="#F1F3F6"/>
+    <path d="M210.9,254.2 L210.9,230.3 L301.1,230.3 L301.1,254.2 A45.1,26.0 0 0 1 210.9,254.2 Z" fill="#CBD0D8"/>
+    <ellipse cx="256.0" cy="230.3" rx="45.1" ry="26.0" fill="#F1F3F6"/>
+  
+  <g transform="matrix(79.674 46.000 0 -92.000 96.7 314.0)">
+    <rect x="0.22" y="0.28" width="1.56" height="0.58" rx="0.29" fill="#101218"/>
+    <rect x="0.50" y="0.42" width="0.26" height="0.30" rx="0.09" fill="#FF9A1F"/>
+    <rect x="1.24" y="0.42" width="0.26" height="0.30" rx="0.09" fill="#FF9A1F"/>
+  </g>
+  <g transform="translate(256.0 261.1) rotate(-24)"><path d="M212,0 A212,66 0 0 1 -212,0" fill="none" stroke="#FF9A1F" stroke-width="21"/></g>
+</svg>
