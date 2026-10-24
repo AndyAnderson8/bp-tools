@@ -3,6 +3,7 @@
 import fnmatch
 import time
 from collections import deque
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from requests import Response, Session
@@ -11,16 +12,39 @@ from bp_tools.core.constants import BASE_URL, RATE_LIMITS
 from bp_tools.core.utils import log_print as print
 from bp_tools.core.utils import sleep_with_status
 
-# After a 429, no requests are sent for at least this long (seconds).
-RATE_LIMIT_COOLDOWN_SECONDS = 300.0
+# Fallback when the server omits Retry-After. Repeated 429s back off up to five
+# minutes; valid Retry-After values are followed as sent by the API.
+RATE_LIMIT_COOLDOWN_SECONDS = 60.0
+RATE_LIMIT_MAX_COOLDOWN_SECONDS = 300.0
+
+
+@dataclass
+class _AccountRateLimitState:
+    """Rate-limit pause shared by clients using the same API token."""
+
+    paused_until: float = 0.0
+    consecutive_429s: int = 0
 
 
 class ApiError(RuntimeError):
     """Non-2xx response from the API."""
 
-    def __init__(self, status_code: int, path: str, detail: object) -> None:
-        super().__init__(f"{status_code} {path}: {detail}")
+    def __init__(
+        self,
+        status_code: int,
+        path: str,
+        detail: object,
+        *,
+        account: str | None = None,
+        retry_after: float | None = None,
+        is_backoff: bool = False,
+    ) -> None:
+        account_label = f" [{account}]" if account else ""
+        super().__init__(f"{status_code} {path}{account_label}: {detail}")
         self.status_code = status_code
+        self.account = account
+        self.retry_after = retry_after
+        self.is_backoff = is_backoff
 
 
 class RateLimiter:
@@ -62,11 +86,14 @@ class ApiClient:
         token: str,
         rate_limits: Optional[dict[str, Any]] = None,
         dry_run: bool = False,
+        username: str | None = None,
+        account_rate_limit_state: _AccountRateLimitState | None = None,
     ) -> None:
         """
         :param token: BrickPlanet API token (Bearer).
         :param rate_limits: Parsed rate-limits dict (from ``load_rate_limits``).
         :param dry_run: If True, mutating requests (POST/DELETE) are printed instead of sent.
+        :param username: Account name for useful rate-limit diagnostics.
         """
         self._session = Session()
         self._session.headers.update(
@@ -77,11 +104,14 @@ class ApiClient:
             }
         )
         self.dry_run = dry_run
+        self.username = username
+        self._account_rate_limit_state = (
+            account_rate_limit_state or _AccountRateLimitState()
+        )
 
         # Rate limiting
         rl = rate_limits or RATE_LIMITS
         tiers_raw = rl.get("tiers", {})
-        self._paused_until: float = 0.0
         self._limiters: dict[str, RateLimiter] = {}
         for tier_name, tier_cfg in tiers_raw.items():
             self._limiters[tier_name] = RateLimiter(
@@ -90,6 +120,15 @@ class ApiClient:
             )
 
         self._routes: dict[str, str] = rl.get("routes", {})
+
+    @property
+    def _paused_until(self) -> float:
+        """Compatibility accessor for the shared account cooldown deadline."""
+        return self._account_rate_limit_state.paused_until
+
+    @_paused_until.setter
+    def _paused_until(self, value: float) -> None:
+        self._account_rate_limit_state.paused_until = value
 
     # ------------------------------------------------------------------
     # Low-level helpers
@@ -121,8 +160,9 @@ class ApiClient:
         """
         Send a rate-limited request and return the parsed JSON body.
 
-        A 429 pauses every request from this client for the cooldown
-        (at least five minutes): retrying a 429 extends the site's throttle.
+        A 429 pauses requests for this account until Retry-After expires.
+        Repeated 429s without that header use exponential backoff. Requests
+        are never retried automatically.
         Any other non-2xx response raises :class:`ApiError`.
         """
         self._raise_if_paused(path)
@@ -130,33 +170,62 @@ class ApiClient:
         self._rate_limit(method, path)
         response = self._session.request(method, url, params=params, json=json_body)
         if response.status_code == 429:
-            self._pause(response)
-            raise ApiError(429, path, f"rate limited; paused {self._paused_for():.0f}s")
+            cooldown = self._pause(response)
+            headers = response.headers
+            limit = headers.get("X-RateLimit-Limit")
+            remaining = headers.get("X-RateLimit-Remaining")
+            detail = f"rate limited; backing off {cooldown:.0f}s"
+            if limit is not None or remaining is not None:
+                detail += f" (limit={limit or '?'} remaining={remaining or '?'})"
+            raise ApiError(
+                429,
+                path,
+                detail,
+                account=self.username,
+                retry_after=cooldown,
+            )
         if not response.ok:
             try:
                 detail = response.json()
             except Exception:
                 detail = response.text
-            raise ApiError(response.status_code, path, detail)
+            raise ApiError(response.status_code, path, detail, account=self.username)
+        self._account_rate_limit_state.consecutive_429s = 0
         return response.json()
 
     def _paused_for(self) -> float:
         return max(0.0, self._paused_until - time.monotonic())
 
-    def _pause(self, response: Response) -> None:
-        """Start a cooldown after a server-side 429."""
+    def _pause(self, response: Response) -> float:
+        """Start an account-wide cooldown and return its duration in seconds."""
         try:
             retry_after = float(response.headers.get("Retry-After", ""))
         except ValueError:
             retry_after = 0.0
-        cooldown = max(retry_after, RATE_LIMIT_COOLDOWN_SECONDS)
+        if retry_after > 0:
+            cooldown = retry_after
+        else:
+            state = self._account_rate_limit_state
+            state.consecutive_429s += 1
+            cooldown = min(
+                RATE_LIMIT_COOLDOWN_SECONDS * 2 ** (state.consecutive_429s - 1),
+                RATE_LIMIT_MAX_COOLDOWN_SECONDS,
+            )
         self._paused_until = max(self._paused_until, time.monotonic() + cooldown)
+        return cooldown
 
     def _raise_if_paused(self, path: str) -> None:
         """Fail fast, without a network call, while a cooldown is active."""
         remaining = self._paused_for()
         if remaining > 0:
-            raise ApiError(429, path, f"paused after rate limit, {remaining:.0f}s left")
+            raise ApiError(
+                429,
+                path,
+                f"[backoff] request suppressed for {remaining:.0f}s",
+                account=self.username,
+                retry_after=remaining,
+                is_backoff=True,
+            )
 
     def get(
         self,

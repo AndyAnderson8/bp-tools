@@ -3,7 +3,8 @@
 from pathlib import Path
 from unittest import mock
 
-from bp_tools.core.runner import build_bots, tick_bot
+from bp_tools.core.config import AppConfig, UserToken
+from bp_tools.core.runner import build_bots, create_api_clients, tick_bot
 
 
 class CountingBot:
@@ -59,6 +60,24 @@ def test_error_is_recorded_and_not_raised() -> None:
 
     assert bot.last_error == "boom"
     assert bot.runs == 1
+
+
+def test_clients_for_same_token_share_rate_limit_cooldown() -> None:
+    config = AppConfig(
+        users=[
+            UserToken("reader-a", "same-token"),
+            UserToken("reader-b", "same-token"),
+        ],
+        tools={},
+    )
+
+    clients = create_api_clients(config, {"reader-a", "reader-b"})
+
+    assert (
+        clients["reader-a"]._account_rate_limit_state
+        is clients["reader-b"]._account_rate_limit_state
+    )
+    assert clients["reader-a"]._limiters is clients["reader-b"]._limiters
 
 
 def test_build_bots_with_nothing_enabled_returns_empty(tmp_path: Path) -> None:

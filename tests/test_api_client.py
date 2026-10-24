@@ -70,7 +70,8 @@ def test_429_is_not_retried_and_starts_a_cooldown() -> None:
 
     assert info.value.status_code == 429
     assert client._session.request.call_count == 1  # never retried
-    assert client._paused_for() >= api_mod.RATE_LIMIT_COOLDOWN_SECONDS - 5
+    assert client._paused_for() <= 1
+    assert info.value.retry_after == 1
 
 
 def test_requests_fail_fast_during_cooldown_without_network() -> None:
@@ -78,10 +79,29 @@ def test_requests_fail_fast_during_cooldown_without_network() -> None:
     client._paused_until = api_mod.time.monotonic() + 600
     client._session.request = mock.Mock()  # type: ignore[method-assign]
 
-    with pytest.raises(ApiError, match="paused"):
+    with pytest.raises(ApiError, match=r"\[backoff\]") as info:
         client.get("/me")
 
+    assert info.value.is_backoff is True
     client._session.request.assert_not_called()
+
+
+def test_missing_retry_after_uses_bounded_exponential_backoff() -> None:
+    client = ApiClient(token="t")
+    client._session.request = mock.Mock(  # type: ignore[method-assign]
+        return_value=_response(429)
+    )
+
+    with pytest.raises(ApiError):
+        client.get("/me")
+    first_pause = client._paused_for()
+    client._paused_until = api_mod.time.monotonic() - 1
+
+    with pytest.raises(ApiError):
+        client.get("/me")
+
+    assert first_pause <= api_mod.RATE_LIMIT_COOLDOWN_SECONDS
+    assert client._paused_for() <= api_mod.RATE_LIMIT_COOLDOWN_SECONDS * 2
 
 
 def test_requests_resume_after_cooldown(monkeypatch: pytest.MonkeyPatch) -> None:

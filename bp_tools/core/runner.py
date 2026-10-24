@@ -166,6 +166,7 @@ def create_api_clients(
 
     # Share limiters between clients with the same token (same user account)
     token_to_limiters: dict[str, Any] = {}
+    token_to_cooldown: dict[str, Any] = {}
     clients: dict[str, ApiClient] = {}
 
     for username in sorted(usernames):
@@ -175,12 +176,15 @@ def create_api_clients(
             token=user_token.token,
             rate_limits=rate_limits,
             dry_run=dry_run,
+            username=username,
         )
         existing = token_to_limiters.get(user_token.token)
         if existing is not None:
             client._limiters = existing
+            client._account_rate_limit_state = token_to_cooldown[user_token.token]
         else:
             token_to_limiters[user_token.token] = client._limiters
+            token_to_cooldown[user_token.token] = client._account_rate_limit_state
         clients[username] = client
 
     return clients

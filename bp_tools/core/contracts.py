@@ -96,6 +96,10 @@ class BotBase(ABC, Generic[C]):
         If *overwrite* is True the message is routed to set_status instead
         (backward-compat shim – prefer ``_set_status`` for new code).
         """
+        # Local cooldown rejections are expected while an account is paused;
+        # the initial 429 is logged, then these would flood logs every poll.
+        if "[backoff]" in msg:
+            return
         prefixed = f"[{self.name}] {msg}"
         if overwrite:
             self._set_status(prefixed)
