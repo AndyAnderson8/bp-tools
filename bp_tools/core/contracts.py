@@ -110,6 +110,11 @@ class BotBase(ABC, Generic[C]):
         if "[backoff]" not in msg:
             log_event(f"[{self.name}] {msg}", level="INFO")
 
+    def _highlight(self, msg: str) -> None:
+        """Log an informative discovery in color without calling it an action."""
+        if "[backoff]" not in msg:
+            log_print(f"[INFO] [{self.name}] {msg}")
+
     def _warn(self, msg: str) -> None:
         """Log a recoverable problem with the standard WARN prefix."""
         if "[backoff]" not in msg:

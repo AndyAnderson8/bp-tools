@@ -151,16 +151,16 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
                 if item.remaining_stock > 0 and item.on_sale:
                     should_buy = True
             elif prev_stock == 0 and item.remaining_stock > 0 and item.on_sale:
-                self._log(f"Restock detected — {item}")
+                self._info(f"Restock detected — {item}")
                 should_buy = True
             elif was_on_sale is False and item.on_sale and item.remaining_stock > 0:
-                self._log(f"Went on sale — {item}")
+                self._info(f"Went on sale — {item}")
                 should_buy = True
         else:
             if prev_stock is None and item.on_sale:
                 should_buy = True
             elif was_on_sale is False and item.on_sale:
-                self._log(f"Newly on sale (bits item) — {item}")
+                self._info(f"Newly on sale (bits item) — {item}")
                 should_buy = True
 
         if should_buy:
@@ -429,7 +429,7 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
         sys.stdout.flush()  # terminal bell
 
         for item in self._items_to_buy:
-            self._log(f"New/restocked item — {item} (stock: {item.remaining_stock})")
+            self._info(f"New/restocked item — {item} (stock: {item.remaining_stock})")
             for user_cfg in self.config.users:
                 try:
                     self._buy_for_user(item, user_cfg)

@@ -152,7 +152,8 @@ def log_event(text: str, *, level: str = "INFO") -> None:
     if normalized not in {"INFO", "WARN", "ERROR"}:
         raise ValueError(f"Unknown log level: {level}")
 
-    line = f"[{normalized}] {text}"
+    # Keep conventional log lines aligned with the indented action stream.
+    line = f"    [{normalized}] {text}"
     style = {"INFO": "dim", "WARN": "yellow", "ERROR": "red"}[normalized]
     warning = normalized != "INFO"
     if _log_sink is not None:

@@ -133,7 +133,10 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         max_willing = max(max_credits, rap_threshold)
 
         if price <= max_willing:
-            self._log(f"SNAG! {item_name} (ID: {item_id}) listed at {price:,} credits")
+            self._highlight(
+                f"Found {item_name} (ID: {item_id}) listed at {price:,} credits; "
+                "checking the listing before purchase."
+            )
             # Store item info — we'll fetch reseller_id in execute()
             self._pending_buy = PendingBuy(
                 item_id=item_id,
