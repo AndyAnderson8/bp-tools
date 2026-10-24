@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
 
 from bp_tools.core.config_utils import parse_config
-from bp_tools.core.utils import log_print, set_status
+from bp_tools.core.utils import log_event, log_print, set_status
 
 if TYPE_CHECKING:
     from bp_tools.core.runner import RunnerContext
@@ -91,10 +91,9 @@ class BotBase(ABC, Generic[C]):
         self.last_error: str = ""
 
     def _log(self, msg: str, overwrite: bool = False) -> None:
-        """Print a scrolling log message with bot name prefix.
+        """Log a bot action in color, with a neutral status variant.
 
-        If *overwrite* is True the message is routed to set_status instead
-        (backward-compat shim – prefer ``_set_status`` for new code).
+        If *overwrite* is True the message updates the gray INFO status line.
         """
         # Local cooldown rejections are expected while an account is paused;
         # the initial 429 is logged, then these would flood logs every poll.
@@ -102,9 +101,24 @@ class BotBase(ABC, Generic[C]):
             return
         prefixed = f"[{self.name}] {msg}"
         if overwrite:
-            self._set_status(prefixed)
+            self._set_status(f"[INFO] {prefixed}")
             return
-        log_print(prefixed)
+        log_print(f"[ACTION] {prefixed}")
+
+    def _info(self, msg: str) -> None:
+        """Log a neutral bot notice with the standard INFO prefix."""
+        if "[backoff]" not in msg:
+            log_event(f"[{self.name}] {msg}", level="INFO")
+
+    def _warn(self, msg: str) -> None:
+        """Log a recoverable problem with the standard WARN prefix."""
+        if "[backoff]" not in msg:
+            log_event(f"[{self.name}] {msg}", level="WARN")
+
+    def _error(self, msg: str) -> None:
+        """Log a failed operation with the standard ERROR prefix."""
+        if "[backoff]" not in msg:
+            log_event(f"[{self.name}] {msg}", level="ERROR")
 
     def _set_status(self, text: str) -> None:
         """Update this bot's live status line in the dashboard."""

@@ -13,7 +13,7 @@ from bp_tools.core.constants import (
     RATE_LIMITS,
 )
 from bp_tools.core.contracts import BotBase, normalize_usernames
-from bp_tools.core.utils import log_print as print
+from bp_tools.core.utils import log_event, log_print as print
 from bp_tools.core.utils import start_live, stop_live
 from bp_tools.core.wallet import WalletRegistry
 
@@ -171,7 +171,7 @@ def create_api_clients(
 
     for username in sorted(usernames):
         user_token = tokens_by_name[username]
-        print(f"Creating API client: {username}")
+        log_event(f"Creating API client: {username}")
         client = ApiClient(
             token=user_token.token,
             rate_limits=rate_limits,
@@ -231,19 +231,19 @@ def _instantiate_bots(
             )  # type: ignore[call-arg]
             bots.append(bot)
         except (PermissionError, RuntimeError, TypeError, ValueError) as exc:
-            print(f"  Skipping {tool.tool_name}: {exc}")
+            log_event(f"Skipping {tool.tool_name}: {exc}", level="WARN")
     return bots
 
 
 def _force_init_remaining(bots: list[BotBase]) -> None:
     """Force-init bots that are stuck in a circular dependency."""
     names = [b.name for b in bots]
-    print(f"  [!] Circular init dependency, forcing: {names}")
+    log_event(f"Circular init dependency; forcing initialization: {names}", level="WARN")
     for b in bots:
         try:
             b.initialize()
         except Exception as exc:
-            print(f"  [{b.name}] Init error: {exc}")
+            log_event(f"[{b.name}] initialization failed: {exc}", level="ERROR")
 
 
 def initialize_bots(bots: list[BotBase]) -> None:
@@ -270,7 +270,7 @@ def initialize_bots(bots: list[BotBase]) -> None:
             try:
                 b.initialize()
             except Exception as exc:
-                print(f"  [{b.name}] Init error: {exc}")
+                log_event(f"[{b.name}] initialization failed: {exc}", level="ERROR")
             progressed = True
 
         remaining = next_remaining
@@ -295,7 +295,7 @@ def tick_bot(
             b.last_error = ""
         except Exception as exc:
             b.last_error = str(exc)
-            print(f"  [{b.name}] Error: {exc}")
+            log_event(f"[{b.name}] tick failed: {exc}", level="ERROR")
         b.last_run_at = time.time()
         last_run[b.name] = time.monotonic()
 
@@ -327,7 +327,7 @@ def _run_loop(bots: list[BotBase], sleep_seconds: float) -> int:
         run_bots(bots, should_stop=lambda: False, sleep_seconds=sleep_seconds)
     except KeyboardInterrupt:
         stop_live()
-        print("\nStopped (Ctrl+C).")
+        log_event("Stopped (Ctrl+C).")
         return 0
     finally:
         stop_live()
@@ -348,7 +348,7 @@ def _filter_tools(
         elif name_or_uuid in uuid_by_name:
             filter_uuids.add(uuid_by_name[name_or_uuid])
         else:
-            print(f"  Unknown tool: {name_or_uuid}")
+            log_event(f"Unknown tool: {name_or_uuid}", level="WARN")
     return [t for t in enabled if t.uuid in filter_uuids]
 
 
@@ -360,7 +360,7 @@ def _build_context(
     """Create API clients, build RunnerContext."""
     all_usernames = {u.username for u in cfg.users}
 
-    print(f"{len(all_usernames)} tokens found," " initializing user clients...")
+    log_event(f"{len(all_usernames)} tokens found; initializing user clients...")
     clients = create_api_clients(
         cfg, all_usernames, rate_limits=RATE_LIMITS, dry_run=dry_run
     )
@@ -379,7 +379,7 @@ def _print_tool_summary(
 ) -> None:
     """Print the list of enabled tools."""
     print()
-    print(f"Running {len(enabled)} tool(s):")
+    log_event(f"Running {len(enabled)} tool(s):")
     for t in enabled:
         tool = registry.get(t.uuid)
         name = tool.tool_name if tool else t.uuid
@@ -389,10 +389,10 @@ def _print_tool_summary(
             label = f"every {t.poll_interval:g}s"
         else:
             label = "every loop"
-        print(f"  - {name} ({label})")
+        log_event(f"  - {name} ({label})")
 
     if dry_run:
-        print("\n*** DRY RUN MODE" " — no POST/DELETE requests will be sent ***")
+        log_event("DRY RUN MODE — no POST/DELETE requests will be sent", level="WARN")
     print()
 
 
@@ -421,12 +421,12 @@ def build_bots(
     if only_tools:
         enabled = _filter_tools(only_tools, enabled, registry)
     if not enabled:
-        print("No enabled tools in config.")
+        log_event("No enabled tools in config.", level="WARN")
         return []
 
     bot_usernames = _collect_usernames(enabled)
     if not bot_usernames:
-        print("No usernames configured for enabled tools.")
+        log_event("No usernames configured for enabled tools.", level="WARN")
         return []
 
     ctx = _build_context(cfg, config_path, dry_run)

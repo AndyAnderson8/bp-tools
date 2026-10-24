@@ -52,13 +52,13 @@ def _gradient_text(text: str, warning: bool = False) -> Text:
 
 def _build_status_display() -> Group:
     """Build the Rich renderable for the status dashboard."""
-    parts: list[RenderableType] = [Text(""), _gradient_text("Current status(es):")]
+    parts: list[RenderableType] = [Text(""), Text("Current status(es):", style="dim")]
     for key, line in _status_lines.items():
         if not line:
             continue
         if key.startswith("_"):
             parts.append(Text(""))
-        parts.append(_gradient_text(line))
+        parts.append(Text(line, style="dim"))
     return Group(*parts)
 
 
@@ -136,9 +136,34 @@ def log_print(
     if _log_sink is not None:
         _log_sink(text, warning)
     elif _live is not None:
-        _live.console.print(_gradient_text(text, warning=warning))
+        if _console.is_terminal:
+            _live.console.print(_gradient_text(text, warning=warning))
+        else:
+            _gradient_print_raw(text, warning=warning)
     else:
         _gradient_print_raw(text, warning=warning)
+
+
+def log_event(text: str, *, level: str = "INFO") -> None:
+    """Print a conventional, tagged log line without the bot-action gradient."""
+    if "[backoff]" in text:
+        return
+    normalized = level.upper()
+    if normalized not in {"INFO", "WARN", "ERROR"}:
+        raise ValueError(f"Unknown log level: {level}")
+
+    line = f"[{normalized}] {text}"
+    style = {"INFO": "dim", "WARN": "yellow", "ERROR": "red"}[normalized]
+    warning = normalized != "INFO"
+    if _log_sink is not None:
+        _log_sink(line, warning)
+    elif _live is not None:
+        _live.console.print(Text(line, style=style))
+    elif sys.stdout.isatty():
+        _console.print(Text(line, style=style))
+    else:
+        sys.stdout.write(f"{line}\n")
+        sys.stdout.flush()
 
 
 def _gradient_print_raw(text: str, warning: bool = False) -> None:

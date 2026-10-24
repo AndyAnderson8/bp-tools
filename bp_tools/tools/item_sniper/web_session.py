@@ -14,7 +14,7 @@ from typing import Any
 
 from requests import Response, Session
 
-from bp_tools.core.utils import log_print as print
+from bp_tools.core.utils import log_event
 
 # BrickPlanet web base (not the API base)
 _WEB_BASE = "https://www.brickplanet.com"
@@ -227,9 +227,10 @@ class WebSession:
         if not self._is_stale() or time.time() < self._retry_at:
             return
 
-        print(
+        log_event(
             f"[WebSession] [{self.username}] Session reached 24h limit — "
-            "re-logging in..."
+            "re-logging in...",
+            level="INFO",
         )
         try:
             self._login()

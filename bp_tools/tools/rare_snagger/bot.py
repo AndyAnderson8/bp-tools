@@ -48,7 +48,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
 
         # Autopopulate cache if empty
         if count_items(config_dir) == 0:
-            self._log("No rare items cached - scanning catalog...")
+            self._info("No rare items cached - scanning catalog...")
             client = self._next_get_client()
             init_rare_cache(client, config_dir=config_dir, log=self._log)
 
@@ -56,11 +56,11 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         self._rare_names = load_rare_names(config_dir)
         # TEMPORARY FALLBACK - local RAP values until API populates average_sales_price
         self._rare_raps = load_rare_raps(config_dir)
-        self._log(f"Loaded {len(self._rare_item_ids)} rare items from cache.", True)
+        self._info(f"Loaded {len(self._rare_item_ids)} rare items from cache.")
 
         # Fetch initial wallet
         balances = self._refresh_wallet()
-        self._log(
+        self._info(
             f"Wallet — {balances.get('credits', 0):,} credits, "
             f"{balances.get('bits', 0):,} bits"
         )
@@ -73,9 +73,8 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         self._rare_item_ids = load_rare_ids(config_dir)
         self._rare_names = load_rare_names(config_dir)
         self._rare_raps = load_rare_raps(config_dir)
-        self._log(
+        self._info(
             f"Refreshed — {len(self._rare_item_ids)} rare items.",
-            True,
         )
 
     def update(self) -> None:
@@ -114,7 +113,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
             client = self._next_get_client()
             result = client.get_item(item_id)
         except Exception as exc:
-            self._log(f"Error — fetching item {item_name}: {exc}")
+            self._error(f"Fetching item {item_name} failed: {exc}")
             return
 
         data = result.get("data", {})
@@ -152,12 +151,12 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         try:
             result = self._next_get_client().get_resellers(buy.item_id)
         except Exception as exc:
-            self._log(f"Error — fetching resellers for {buy.item_name}: {exc}")
+            self._error(f"Fetching resellers for {buy.item_name} failed: {exc}")
             return None
 
         listings = result.get("data", [])
         if not listings:
-            self._log(
+            self._warn(
                 f"No resellers found for {buy.item_name}" " — listing may be gone."
             )
             return None
@@ -171,7 +170,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
             return None
 
         if actual_price > buy.price:
-            self._log(
+            self._info(
                 f"Price changed — {buy.item_name} now {actual_price:,} "
                 f"(was {buy.price:,}). Skipping."
             )
@@ -193,7 +192,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
             wallet = self._refresh_wallet()
             credits_balance = wallet.get("credits", 0)
             if credits_balance < actual_price:
-                self._log(
+                self._info(
                     f"Not enough credits" f" — {credits_balance:,} < {actual_price:,}"
                 )
                 return
@@ -219,7 +218,7 @@ class SnaggerBot(BotBase[SnaggerConfig]):
             self._scan_index -= 1
             self._refresh_wallet()
         except Exception as exc:
-            self._log(f"Buy failed — {buy.item_name}: {exc}")
+            self._error(f"Buy failed — {buy.item_name}: {exc}")
 
     def execute(self) -> None:
         if not self._pending_buy:

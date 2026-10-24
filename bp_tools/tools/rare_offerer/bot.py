@@ -39,15 +39,14 @@ class OffererBot(BotBase[OffererConfig]):
         config_dir = self._ctx.config_dir
 
         if count_items(config_dir) == 0:
-            self._log("No rare items cached — scanning catalog...")
+            self._info("No rare items cached — scanning catalog...")
             client = self._next_get_client()
             init_rare_cache(client, config_dir=config_dir, log=self._log)
 
         self._rare_ids = load_rare_ids(config_dir)
         self._rare_names = load_rare_names(config_dir)
-        self._log(
+        self._info(
             f"Loaded {len(self._rare_ids)} rare items.",
-            True,
         )
 
     def _advance(self) -> None:
@@ -65,9 +64,8 @@ class OffererBot(BotBase[OffererConfig]):
         init_rare_cache(client, config_dir=config_dir, log=self._log)
         self._rare_ids = load_rare_ids(config_dir)
         self._rare_names = load_rare_names(config_dir)
-        self._log(
+        self._info(
             f"Refreshed — {len(self._rare_ids)} rare items.",
-            True,
         )
 
     def update(self) -> None:
@@ -115,4 +113,4 @@ class OffererBot(BotBase[OffererConfig]):
         except Exception as exc:
             # Silently skip 422s (duplicate, insufficient, etc.)
             if not (isinstance(exc, ApiError) and exc.status_code == 422):
-                self._log(f"Error offering on {name}" f" (ID: {item_id}): {exc}")
+                self._error(f"Offer failed on {name} (ID: {item_id}): {exc}")

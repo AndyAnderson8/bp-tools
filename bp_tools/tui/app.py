@@ -103,7 +103,15 @@ class BpToolsApp(App[None]):
             self.call_from_thread(self._write_log, text, warning)
 
     def _write_log(self, text: str, warning: bool) -> None:
-        style = "bold yellow" if warning else ""
+        if text.startswith("[ERROR]"):
+            style = "bold red"
+        elif text.startswith("[WARN]") or warning:
+            style = "bold yellow"
+        elif text.startswith("[INFO]"):
+            style = "dim"
+        else:
+            self.query_one("#log", RichLog).write(utils._gradient_text(text))
+            return
         self.query_one("#log", RichLog).write(Text(text, style=style))
 
     def _notice(self, text: str) -> None:
@@ -122,10 +130,10 @@ class BpToolsApp(App[None]):
                 only_tools=self._only_tools,
             )
         except Exception as exc:
-            utils.log_print(f"Startup failed: {exc}", warning=True)
+            utils.log_event(f"Startup failed: {exc}", level="ERROR")
             return
         if not bots:
-            utils.log_print("No bots to run.", warning=True)
+            utils.log_event("No bots to run.", level="WARN")
             return
 
         self._bots = bots
@@ -173,7 +181,7 @@ class BpToolsApp(App[None]):
         bot = self._bots[row]
         bot.enabled = not bot.enabled
         state = "ON" if bot.enabled else "OFF"
-        utils.log_print(f"[ui] {bot.name} -> {state}")
+        utils.log_event(f"[ui] {bot.name} -> {state}")
 
     async def action_quit(self) -> None:
         self._stop.set()

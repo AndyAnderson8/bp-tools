@@ -4,7 +4,7 @@ from pathlib import Path
 
 from bp_tools.core.config import load_config
 from bp_tools.core.runner import discover_tools, start as start_runner
-from bp_tools.core.utils import log_print as print
+from bp_tools.core.utils import log_event
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -63,16 +63,16 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv or sys.argv[1:])
 
     if args.sleep <= 0:
-        print("--sleep must be > 0", warning=True)
+        log_event("--sleep must be > 0", level="WARN")
         return 2
 
     if args.tui:
         try:
             from bp_tools.tui.app import run_tui
         except ImportError:
-            print(
+            log_event(
                 "--tui needs the 'tui' extra: pip install -e .[tui]",
-                warning=True,
+                level="WARN",
             )
             return 2
         return run_tui(
@@ -85,17 +85,17 @@ def main(argv: list[str] | None = None) -> int:
         try:
             cfg = load_config(args.config)
         except Exception as exc:
-            print(f"Failed to load config: {exc}", warning=True)
+            log_event(f"Failed to load config: {exc}", level="ERROR")
             return 2
 
         registry = discover_tools()
         enabled = [t for t in cfg.tools.values() if t.enabled]
-        print(f"Config: {args.config}")
-        print(f"Enabled tools: {len(enabled)}")
+        log_event(f"Config: {args.config}")
+        log_event(f"Enabled tools: {len(enabled)}")
         for t in enabled:
             tool = registry.get(t.uuid)
             name = tool.tool_name if tool else "unknown"
-            print(f"  - {name} ({t.uuid})")
+            log_event(f"  - {name} ({t.uuid})")
         return 0
 
     return start_runner(

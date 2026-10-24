@@ -58,10 +58,10 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         self._best_ask: float | None = None
 
     def initialize(self) -> None:
-        self._log("Starting up — cancelling all open orders", True)
+        self._info("Starting up — cancelling all open orders")
         self._cancel_all_open_orders()
         balances = self._refresh_wallet()
-        self._log(
+        self._info(
             f"Wallet — {balances.get('credits', 0):,} credits, "
             f"{balances.get('bits', 0):,} bits",
         )
@@ -76,7 +76,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             self._best_bid = self._bid_levels[0]["rate"] if self._bid_levels else None
             self._best_ask = self._ask_levels[0]["rate"] if self._ask_levels else None
         except Exception as exc:
-            self._log(f"Error — fetching orderbook: {exc}")
+            self._error(f"Fetching orderbook failed: {exc}")
             return
 
         # Place initial orders
@@ -97,7 +97,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 if side is TradeSide.BID and state.order_id is not None:
                     bid_placed = True
             else:
-                self._log(f"Not enough {side.label} to place order.")
+                self._info(f"Not enough {side.label} to place order.")
 
     # ------------------------------------------------------------------
     # Side-aware accessors
@@ -139,7 +139,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         try:
             payload = self._write_client.get_my_orders()
         except Exception as exc:
-            self._log(f"Error — fetching open orders: {exc}")
+            self._error(f"Fetching open orders failed: {exc}")
             return
 
         orders = payload.get("data", [])
@@ -152,7 +152,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 time.sleep(0.5)
                 self._write_client.cancel_order(order_id)
             except Exception as exc:
-                self._log(f"Failed to cancel order — {exc}")
+                self._error(f"Failed to cancel order — {exc}")
 
     # ------------------------------------------------------------------
     # Generic order methods (parameterised by TradeSide)
@@ -175,12 +175,12 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 order_id is None
                 and getattr(self._write_client, "dry_run", False) is True
             ):
-                self._log(f"[dry run] {side.label} order not sent")
+                self._info(f"[dry run] {side.label} order not sent")
                 return None
             if order_id is None:
                 state.held = True
-                self._log(
-                    f"WARNING: {side.label} order was accepted but no id came back; "
+                self._warn(
+                    f"{side.label} order was accepted but no id came back; "
                     "holding this side to avoid a duplicate. Restart to clear it."
                 )
                 return None
@@ -188,7 +188,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             self._log(f"Posted {amount:,} {side.label} @ {rate:.2f}")
             return order_id
         except Exception as exc:
-            self._log(f"Failed to place {side.label} order — {exc}")
+            self._error(f"Failed to place {side.label} order — {exc}")
             return None
 
     def _compute_rate(self, side: TradeSide, cfg: ExchangeSideConfig) -> float:
@@ -234,7 +234,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 if order.get("id") == order_id:
                     return order.get("remaining_amount", 0)
         except Exception as exc:
-            self._log(f"Error — fetching order status: {exc}")
+            self._error(f"Fetching order status failed: {exc}")
         return None
 
     def _cancel_and_repost(self, side: TradeSide, new_rate: float, reason: str) -> None:
@@ -251,7 +251,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
         try:
             self._write_client.cancel_order(state.order_id)
         except Exception as exc:
-            self._log(f"Cancel failed ({side.label}) — {exc}")
+            self._error(f"Cancel failed ({side.label}) — {exc}")
             return
 
         time.sleep(0.5)
@@ -267,12 +267,12 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             if remaining == 0:
                 self._log(f"{side.label.capitalize()} order filled!")
             elif remaining is None:
-                self._log(
+                self._warn(
                     f"Could not read remaining {side.label} amount; "
                     "will re-place on the next cycle."
                 )
             else:
-                self._log(f"Outside limit — {side.label} rate out of range.")
+                self._info(f"Outside limit — {side.label} rate out of range.")
             state.order_id = None
             state.rate = None
             state.amount = None
@@ -372,7 +372,7 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
                 True,
             )
         except Exception as exc:
-            self._log(f"Error — fetching orderbook: {exc}")
+            self._error(f"Fetching orderbook failed: {exc}")
 
     def execute(self) -> None:
         self._monitor_and_repost()
@@ -393,4 +393,4 @@ class CurrencyExchangeBot(BotBase[CurrencyExchangeConfig]):
             bid_done = self._config_for(TradeSide.BID) is None or bid_state.rate is None
             ask_done = self._config_for(TradeSide.ASK) is None or ask_state.rate is None
             if bid_done and ask_done:
-                self._log("All orders filled or inactive. Holding.", True)
+                self._info("All orders filled or inactive. Holding.")

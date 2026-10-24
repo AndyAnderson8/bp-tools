@@ -9,7 +9,7 @@ from typing import Any, Optional
 from requests import Response, Session
 
 from bp_tools.core.constants import BASE_URL, RATE_LIMITS
-from bp_tools.core.utils import log_print as print
+from bp_tools.core.utils import log_event, log_print as print
 from bp_tools.core.utils import sleep_with_status
 
 # Fallback when the server omits Retry-After. Repeated 429s back off up to five
@@ -174,9 +174,15 @@ class ApiClient:
             headers = response.headers
             limit = headers.get("X-RateLimit-Limit")
             remaining = headers.get("X-RateLimit-Remaining")
-            detail = f"rate limited; backing off {cooldown:.0f}s"
+            account = self.username or "current account"
+            detail = f"[backoff] paused for {cooldown:.0f}s after API rate limit"
+            notice = (
+                f"API rate limit reached for {account} on {path}; "
+                f"pausing requests for {cooldown:.0f}s (Retry-After)."
+            )
             if limit is not None or remaining is not None:
-                detail += f" (limit={limit or '?'} remaining={remaining or '?'})"
+                notice += f" Limit={limit or '?'}; remaining={remaining or '?'}"
+            log_event(notice, level="WARN")
             raise ApiError(
                 429,
                 path,
