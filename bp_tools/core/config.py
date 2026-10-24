@@ -41,6 +41,9 @@ class AppConfig:
     users: list[UserToken]
     tools: dict[str, ToolConfig]  # keyed by UUID
     dev_mode: bool = False
+    # Optional allowlist for round-robin read requests. Omitted means all
+    # configured accounts, preserving the historical behavior.
+    read_usernames: list[str] | None = None
 
 
 def _records(data: dict[str, Any], key: str, cls: type) -> list[Any]:
@@ -80,4 +83,20 @@ def load_config(path: Path) -> AppConfig:
     dev_mode = data.get("dev-mode", False)
     if not isinstance(dev_mode, bool):
         raise TypeError("dev-mode must be true or false")
-    return AppConfig(users=users, tools=tools, dev_mode=dev_mode)
+    read_usernames = data.get("read-usernames")
+    if read_usernames is not None:
+        if not isinstance(read_usernames, list) or not all(
+            isinstance(name, str) and name for name in read_usernames
+        ):
+            raise TypeError("read-usernames must be a list of usernames")
+        if not read_usernames:
+            raise ValueError("read-usernames must not be empty when specified")
+        unknown = sorted(set(read_usernames) - {user.username for user in users})
+        if unknown:
+            raise ValueError(f"read-usernames has no API token for: {unknown}")
+    return AppConfig(
+        users=users,
+        tools=tools,
+        dev_mode=dev_mode,
+        read_usernames=read_usernames,
+    )

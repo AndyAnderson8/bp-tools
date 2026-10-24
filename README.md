@@ -49,6 +49,11 @@ api_tokens:
     password: "..."                 # optional: needed for item_sniper web purchases
     two-factor-code: "123456"       # optional: one-time email code if the account has 2FA
 
+# Optional: only these accounts receive round-robin catalog/public GET requests.
+# Omit to rotate across every configured API account.
+read-usernames:
+  - "ScraperAccount"
+
 tools:
   - uuid: 2a0b9214-7f29-41f2-b913-067ff45fc778   # item_sniper (see table below)
     enabled: true
@@ -71,6 +76,11 @@ dev-mode: false                     # true = skip the sniper's role-restriction 
   or, for item_sniper, `users:` with per-account settings.
 - `poll-interval` is optional; when it's omitted the bot's built-in interval is used.
 - A tool with an invalid config is skipped with a message. The other tools still start.
+- `read-usernames` optionally limits round-robin shared/catalog GET traffic to a
+  dedicated account pool. Account-specific reads (such as `/me` and inventory) stay
+  on the account they belong to.
+  Mutations still use their configured target account. If omitted, shared GETs rotate
+  across every configured API account.
 
 | Tool | UUID |
 |------|------|

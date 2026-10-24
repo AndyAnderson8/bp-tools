@@ -111,10 +111,15 @@ class BotBase(ABC, Generic[C]):
     # ------------------------------------------------------------------
 
     def _next_get_client(self) -> Any:
-        """Round-robin through ALL available clients for GET requests."""
-        clients = list(self._ctx.clients.values())
+        """Round-robin through the configured read accounts for GET requests."""
+        usernames = self._ctx.config.read_usernames
+        clients = [
+            self._ctx.clients[name]
+            for name in (usernames or sorted(self._ctx.clients))
+            if name in self._ctx.clients
+        ]
         if not clients:
-            raise RuntimeError("No API clients available in context.")
+            raise RuntimeError("No API clients available for read requests.")
         client = clients[self._get_client_index % len(clients)]
         self._get_client_index += 1
         return client

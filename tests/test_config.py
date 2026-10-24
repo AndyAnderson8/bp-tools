@@ -61,6 +61,41 @@ def test_defaults_when_sections_missing(tmp_path: Path) -> None:
     assert cfg.users == []
     assert cfg.tools == {}
     assert cfg.dev_mode is False
+    assert cfg.read_usernames is None
+
+
+def test_parses_read_username_pool(tmp_path: Path) -> None:
+    cfg = load_config(
+        _write(
+            tmp_path,
+            """
+api_tokens:
+  - username: Main
+    token: main-token
+  - username: Scraper
+    token: scraper-token
+read-usernames:
+  - Scraper
+tools: []
+""",
+        )
+    )
+
+    assert cfg.read_usernames == ["Scraper"]
+
+
+def test_read_usernames_must_reference_configured_accounts(tmp_path: Path) -> None:
+    text = "api_tokens: []\nread-usernames: [Missing]\n"
+
+    with pytest.raises(ValueError, match="no API token"):
+        load_config(_write(tmp_path, text))
+
+
+def test_read_usernames_must_be_a_nonempty_list(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="read-usernames must be a list"):
+        load_config(_write(tmp_path, "read-usernames: Scraper\n"))
+    with pytest.raises(ValueError, match="must not be empty"):
+        load_config(_write(tmp_path, "read-usernames: []\n"))
 
 
 def test_empty_file_is_an_empty_config(tmp_path: Path) -> None:
