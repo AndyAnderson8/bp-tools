@@ -1,7 +1,7 @@
 FROM python:3.14-slim
 
 LABEL org.opencontainers.image.source="https://github.com/AndyAnderson8/bp-tools" \
-      net.unraid.docker.icon="https://raw.githubusercontent.com/AndyAnderson8/bp-tools/main/assets/logo.png"
+      net.unraid.docker.icon="https://raw.githubusercontent.com/AndyAnderson8/bp-tools/dev/assets/logo-256.png"
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
