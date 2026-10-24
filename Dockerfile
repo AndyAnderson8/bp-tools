@@ -13,6 +13,8 @@ RUN python -m pip install --no-cache-dir .
 
 RUN mkdir /config && chown 99:100 /config
 USER 99:100
-WORKDIR /config
+# Keep Python's import path on the code baked into the image. The mounted
+# /config directory may contain an old checkout from previous deployments.
+WORKDIR /app
 
 CMD ["python", "-m", "bp_tools", "--config", "/config/config.yaml"]
