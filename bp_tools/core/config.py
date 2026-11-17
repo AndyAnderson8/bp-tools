@@ -12,7 +12,7 @@ class UserToken:
     """
     One account from ``api_tokens``.
 
-    ``password`` and ``two-factor-code`` are only needed for web purchases.
+    ``password`` and ``2fa-pin`` are only needed for web purchases.
     """
 
     username: str
@@ -55,6 +55,12 @@ def _records(data: dict[str, Any], key: str, cls: type) -> list[Any]:
     for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
             raise TypeError(f"{key}[{index}] must be a mapping")
+        if "two-factor-code" in entry:
+            raise TypeError(f"{key}[{index}]: rename 'two-factor-code' to '2fa-pin'")
+        if "2fa-pin" in entry:
+            # YAML key "2fa-pin" maps to the two_factor_code field.
+            entry = dict(entry)
+            entry["two-factor-code"] = entry.pop("2fa-pin")
         records.append(parse_config(cls, entry, _path=f"{key}[{index}]."))
     return records
 

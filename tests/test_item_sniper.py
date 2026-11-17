@@ -58,6 +58,7 @@ class FakeWeb:
         password: str,
         two_factor_code: str | None = None,
         cookie_file: object = None,
+        pin_file: object = None,
     ):
         self.username = username
 

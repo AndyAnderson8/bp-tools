@@ -10,7 +10,7 @@ from bp_tools.core.runner import RunnerContext
 
 from .constants import OWNED_CACHE_SECONDS
 from .models import ItemSniperConfig, ShopItem, UserSniperConfig
-from .web_session import WebSession
+from .web_session import PinRequired, WebSession
 
 
 class ItemSniperBot(BotBase[ItemSniperConfig]):
@@ -50,6 +50,8 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
         # Per-user web sessions (form purchases), created in initialize()
         self._web_sessions: dict[str, WebSession] = {}
+        # Accounts waiting for an emailed PIN: username → PIN file path
+        self._pending_pins: dict[str, Path | None] = {}
         # Web purchases bypass ApiClient, so they get their own limiter per
         # account, using the API's trading-tier budget as a conservative cap.
         self._web_limiters: dict[str, RateLimiter] = {}
@@ -81,6 +83,26 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
             return None
         return config_dir / "data" / "web_sessions" / f"{username}.json"
 
+    def _pin_file(self, username: str) -> Path | None:
+        """Where the emailed PIN for *username* is written (None = not kept)."""
+        config_dir = self._ctx.config_dir
+        if config_dir is None:
+            return None
+        return config_dir / "data" / "2fa" / f"{username}.pin"
+
+    def _password_for(self, username: str) -> str | None:
+        for token in self._ctx.config.users:
+            if token.username == username:
+                return token.password
+        return None
+
+    def _wait_for_pin(self, username: str, exc: Exception) -> None:
+        """Park *username* until a PIN file is filled in. Other bots keep running."""
+        self._web_sessions.pop(username, None)
+        pin_file = self._pin_file(username)
+        self._pending_pins[username] = pin_file
+        self._warn(f"[{username}] {exc}. Purchases paused until the PIN is written.")
+
     def _login_web_sessions(self) -> None:
         """Log in a web session for each configured user and report the result."""
         tokens = {u.username: u for u in self._ctx.config.users}
@@ -96,10 +118,41 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
                     password=token.password,
                     two_factor_code=token.two_factor_code,
                     cookie_file=self._device_cookie_file(username),
+                    pin_file=self._pin_file(username),
                 )
                 self._info(f"[{username}] LOGIN OK")
+            except PinRequired as exc:
+                self._wait_for_pin(username, exc)
             except Exception as exc:
                 self._warn(f"[{username}] LOGIN FAILED — {exc}")
+
+    def _check_pins(self) -> None:
+        """Use any PIN written into a waiting account's PIN file, then delete the file."""
+        for username, pin_file in list(self._pending_pins.items()):
+            if pin_file is None or not pin_file.exists():
+                continue
+            pin = pin_file.read_text(encoding="utf-8").strip()
+            if not pin:
+                continue
+            pin_file.unlink()
+            del self._pending_pins[username]
+            password = self._password_for(username)
+            try:
+                self._web_sessions[username] = WebSession(
+                    username=username,
+                    password=password or "",
+                    two_factor_code=pin,
+                    cookie_file=self._device_cookie_file(username),
+                    pin_file=pin_file,
+                )
+                self._info(f"[{username}] LOGIN OK (PIN accepted)")
+            except PinRequired as exc:
+                self._wait_for_pin(username, exc)
+            except Exception as exc:
+                # Recreate the empty PIN file so a corrected PIN can be written.
+                self._warn(f"[{username}] PIN login failed — {exc}")
+                pin_file.touch(exist_ok=True)
+                self._pending_pins[username] = pin_file
 
     def _seed_tracker(self) -> None:
         """Poll rares and all items once to seed trackers without buying."""
@@ -181,14 +234,17 @@ class ItemSniperBot(BotBase[ItemSniperConfig]):
 
     def _check_web_sessions(self) -> None:
         """Re-login any web session older than 24 hours."""
-        for username, web_session in self._web_sessions.items():
+        for username, web_session in list(self._web_sessions.items()):
             try:
                 web_session.ensure_fresh_session()
+            except PinRequired as exc:
+                self._wait_for_pin(username, exc)
             except Exception as exc:
                 self._warn(f"[{username}] 24h session refresh failed — {exc}")
 
     def update(self) -> None:
         self._items_to_buy.clear()
+        self._check_pins()
         self._check_web_sessions()
 
         client = self._next_get_client()

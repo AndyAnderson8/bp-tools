@@ -88,6 +88,22 @@ def test_2fa_without_code_raises_clear_error(monkeypatch: pytest.MonkeyPatch) ->
         ws.WebSession("Revolt", "pw")
 
 
+def test_missing_pin_creates_pin_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        ws.WebSession, "_send", _session_with([LOGIN_PAGE, TWOFA_PAGE], sent)
+    )
+    pin_file = tmp_path / "2fa" / "Revolt.pin"
+
+    with pytest.raises(ws.PinRequired):
+        ws.WebSession("Revolt", "pw", pin_file=pin_file)
+
+    assert pin_file.exists()
+    assert pin_file.read_text(encoding="utf-8") == ""
+
+
 def test_wrong_password_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[dict[str, Any]] = []
     still_login = FakeResponse(LOGIN_PAGE_URL, "Invalid credentials")

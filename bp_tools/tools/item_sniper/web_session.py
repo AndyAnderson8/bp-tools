@@ -40,6 +40,10 @@ class WebRateLimited(WebSessionError):
     """The site answered 429; requests are paused until ``retry_at``."""
 
 
+class PinRequired(WebSessionError):
+    """The site emailed a PIN and none was available; see ``pin_file``."""
+
+
 class WebSession:
     """
     Authenticated browser session for BrickPlanet.
@@ -64,11 +68,13 @@ class WebSession:
         password: str,
         two_factor_code: str | None = None,
         cookie_file: Path | None = None,
+        pin_file: Path | None = None,
     ) -> None:
         self.username = username
         self._password = password
         self._two_factor_code = two_factor_code
         self._cookie_file = cookie_file
+        self._pin_file = pin_file
         self._session: Session = Session()
         self._token: str = ""
         self._created_at: float = 0.0
@@ -169,7 +175,8 @@ class WebSession:
         )
 
         # Accounts with email 2FA are redirected to a code-entry page
-        if "/email-2fa" in response.url:
+        used_2fa = "/email-2fa" in response.url
+        if used_2fa:
             response = self._submit_email_2fa(response)
 
         # Refresh the token from the redirected page
@@ -177,6 +184,12 @@ class WebSession:
 
         # Verify login succeeded - the page title should be "Home | BrickPlanet"
         if "Home | BrickPlanet" not in response.text:
+            if used_2fa:
+                raise WebSessionError(
+                    f"[{self.username}] 2FA PIN was rejected. It may be wrong, "
+                    "expired, or already used. Get a new PIN from email and "
+                    "update '2fa-pin'."
+                )
             raise ConnectionRefusedError(
                 f"[{self.username}] Web login failed — check username/password."
             )
@@ -194,10 +207,18 @@ class WebSession:
         the login it was issued for. Without one, login fails with a clear
         message instead of a generic "check password" error.
         """
+        if not self._two_factor_code and self._pin_file is not None:
+            # Create an empty PIN file so the user knows where to put the code.
+            self._pin_file.parent.mkdir(parents=True, exist_ok=True)
+            self._pin_file.touch(exist_ok=True)
+            raise PinRequired(
+                f"[{self.username}] Account requires email 2FA. Write the emailed "
+                f"PIN into {self._pin_file}"
+            )
         if not self._two_factor_code:
             raise WebSessionError(
                 f"[{self.username}] Account requires email 2FA. Add a "
-                "'two-factor-code' to its api_tokens entry, or disable 2FA "
+                "'2fa-pin' to its api_tokens entry, or disable 2FA "
                 "on the account."
             )
         self._extract_token(page)

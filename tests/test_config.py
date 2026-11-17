@@ -20,7 +20,7 @@ api_tokens:
   - username: "Revolt"
     token: "t1"
     password: "pw"
-    two-factor-code: "123456"
+    2fa-pin: "123456"
   - username: "RA1N"
     token: "t2"
 tools:
