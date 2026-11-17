@@ -107,22 +107,43 @@ class SnaggerBot(BotBase[SnaggerConfig]):
         if max_credits <= 0:
             return
 
-        # Use GET /items/{id} for scanning — gives us lowest_resale_price
-        # and average_sales_price without calling get_resellers
+        # Scan with GET /items/{id}/resellers: the real active listings.
+        # GET /items/{id}'s lowest_resale_price is stale/wrong (e.g. Bitpot
+        # reports 1 while its cheapest listing is 2,999), so it isn't trusted.
+        client = self._next_get_client()
         try:
-            client = self._next_get_client()
-            result = client.get_item(item_id)
+            result = client.get_resellers(item_id)
         except Exception as exc:
-            self._error(f"Fetching item {item_name} failed: {exc}")
+            self._error(f"Fetching resellers for {item_name} failed: {exc}")
             return
 
-        data = result.get("data", {})
-        price = data.get("lowest_resale_price")
-        if not price or price <= 0:
+        own = {name.lower() for name in self.config.usernames}
+        listings = [
+            listing
+            for listing in result.get("data", [])
+            if listing.get("id") is not None
+            and (listing.get("price") or 0) > 0
+            # Can't buy our own listing
+            and (listing.get("seller") or {}).get("username", "").lower() not in own
+        ]
+        if not listings:
             return
+        cheapest = min(listings, key=lambda listing: listing["price"])
+        price = cheapest["price"]
+        seller = (cheapest.get("seller") or {}).get("username", "?")
 
         # Compute the max we're willing to pay = greater of max-credits or RAP threshold
-        avg_price = data.get("average_sales_price")
+        avg_price = None
+        if self.config.rap_percentage > 0 and price > max_credits:
+            # RAP only matters when the price is over the flat max, so only then
+            # spend a second request on GET /items/{id} for average_sales_price.
+            try:
+                avg_price = client.get_item(item_id).get("data", {}).get(
+                    "average_sales_price"
+                )
+            except Exception as exc:
+                self._error(f"Fetching item {item_name} failed: {exc}")
+                return
         # TEMPORARY FALLBACK — use local DB rap if API doesn't have it
         if (avg_price is None or avg_price == 0) and item_id in self._rare_raps:
             avg_price = self._rare_raps[item_id]
@@ -137,13 +158,13 @@ class SnaggerBot(BotBase[SnaggerConfig]):
                 f"Found {item_name} (ID: {item_id}) listed at {price:,} credits; "
                 "checking the listing before purchase."
             )
-            # Store item info — we'll fetch reseller_id in execute()
+            # execute() re-fetches the listing right before buying
             self._pending_buy = PendingBuy(
                 item_id=item_id,
                 item_name=item_name,
-                reseller_id=0,  # will be resolved in execute()
+                reseller_id=cheapest["id"],
                 price=price,
-                seller="?",
+                seller=seller,
             )
 
     def _verify_listing(self, buy: "PendingBuy") -> tuple[int, int, str] | None:

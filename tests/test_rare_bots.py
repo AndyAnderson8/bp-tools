@@ -162,7 +162,35 @@ def test_snagger_override_zero_skips_without_api_call() -> None:
 
     bot.update()
 
-    client.get_item.assert_not_called()
+    client.get_resellers.assert_not_called()
+
+
+def test_snagger_ignores_stale_item_endpoint_price() -> None:
+    # GET /items/{id} reports lowest_resale_price=1, real cheapest listing is 3
+    bot, client = _snagger(max_credits=2, price=3)
+    client.get_item.return_value = {
+        "data": {"lowest_resale_price": 1, "average_sales_price": 0}
+    }
+
+    bot.update()
+
+    assert bot._pending_buy is None
+
+
+def test_snagger_skips_own_listing() -> None:
+    bot, client = _snagger(max_credits=5, price=3)
+    client.get_resellers.return_value = {
+        "data": [
+            {"id": 9, "price": 3, "seller": {"username": "revolt"}},
+            {"id": 10, "price": 4, "seller": {"username": "Other"}},
+        ]
+    }
+
+    bot.update()
+
+    assert bot._pending_buy is not None
+    assert bot._pending_buy.reseller_id == 10
+    assert bot._pending_buy.price == 4
 
 
 def test_snagger_buys_cheapest_reseller_when_still_in_budget() -> None:
@@ -203,12 +231,11 @@ def test_snagger_scan_is_read_only() -> None:
     bot.update()
 
     client.buy_item.assert_not_called()
-    client.get_resellers.assert_not_called()
 
 
-def test_snagger_does_not_queue_for_unknown_price() -> None:
+def test_snagger_does_not_queue_without_listings() -> None:
     client = mock.Mock()
-    client.get_item.return_value = {"data": {}}
+    client.get_resellers.return_value = {"data": []}
     bot = SnaggerBot(
         ctx=_ctx(client),
         config=SnaggerConfig.from_dict({"username": "Revolt", "max-credits": 5}),
