@@ -1,0 +1,10 @@
+services:
+  bp-tools:
+    image: bp-tools:local
+    build: .
+    restart: unless-stopped
+    labels:
+      net.unraid.docker.icon: "https://raw.githubusercontent.com/AndyAnderson8/bp-tools/dev/assets/logo.png?v=20261024-2"
+    user: "${PUID:-99}:${PGID:-100}"
+    volumes:
+      - "${BP_TOOLS_CONFIG_DIR:-./docker-config}:/config"

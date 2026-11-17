@@ -47,7 +47,7 @@ api_tokens:
   - username: "YourUsername"        # used by tools that reference this name
     token: "your_api_token_here"
     password: "..."                 # optional: needed for item_sniper web purchases
-    two-factor-code: "123456"       # optional: one-time email code if the account has 2FA
+    2fa-pin: "123456"               # optional: one-time email PIN if the account has 2FA
 
 # Optional: only these accounts receive round-robin catalog/public GET requests.
 # Omit to rotate across every configured API account.
@@ -104,6 +104,31 @@ python -m bp_tools --config config.yaml
 | `--dry-run` | Print mutating requests instead of sending them |
 | `--list` | List enabled tools and exit |
 | `--tui` | Full-screen terminal UI: toggle bots with `space`, quit with `q` (needs `pip install .[tui]`) |
+
+### Docker / Unraid
+
+Docker is optional; the Python installation above still works. The image includes Python and runs the standard CLI. It needs no published ports.
+
+1. Create a persistent config directory and copy the example into it:
+
+   ```bash
+   mkdir -p docker-config
+   cp config.yaml docker-config/config.yaml
+   ```
+
+2. Edit `docker-config/config.yaml` with your API tokens and bot settings. Keep this directory private: it also holds SQLite caches and trusted-device session cookies under `data/`.
+3. Build and start from the repository directory:
+
+   ```bash
+   docker compose up -d --build
+   docker compose logs -f
+   ```
+
+The container reads `/config/config.yaml` and writes its state under `/config/data`. Edit the host config file and run `docker compose restart` to apply changes. To update the code, pull the repository and run `docker compose up -d --build` again. Use `docker compose down` to stop it; the config directory remains on the host.
+
+On Unraid, set `BP_TOOLS_CONFIG_DIR=/mnt/user/appdata/bp-tools` in a `.env` file beside `compose.yaml`, put your `config.yaml` in that directory, then run the same Compose commands from an Unraid terminal or a Compose manager. The container runs as UID 99 and GID 100 by default (Unraid's `nobody:users`); ensure that account can write to the appdata directory. If your host uses different ownership, set `PUID` and `PGID` in the same `.env` file. No separate Python container or network port is needed.
+
+To use Unraid's **Add Container** screen instead, first build the image with `docker build -t bp-tools:local .`, set **Repository** to `bp-tools:local`, and add a path mapping from `/mnt/user/appdata/bp-tools` to `/config`. Keep the default command and set the container user to `99:100`.
 
 ## Tests
 
