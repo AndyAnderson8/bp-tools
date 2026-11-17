@@ -137,7 +137,7 @@ def log_print(
         _log_sink(text, warning)
     elif _live is not None:
         if _console.is_terminal:
-            _live.console.print(_gradient_text(text, warning=warning))
+            _live.console.print(_gradient_text(text, warning=warning), soft_wrap=True)
         else:
             _gradient_print_raw(text, warning=warning)
     else:
@@ -159,9 +159,9 @@ def log_event(text: str, *, level: str = "INFO") -> None:
     if _log_sink is not None:
         _log_sink(line, warning)
     elif _live is not None:
-        _live.console.print(Text(line, style=style))
+        _live.console.print(Text(line, style=style), soft_wrap=True)
     elif sys.stdout.isatty():
-        _console.print(Text(line, style=style))
+        _console.print(Text(line, style=style), soft_wrap=True)
     else:
         sys.stdout.write(f"{line}\n")
         sys.stdout.flush()
